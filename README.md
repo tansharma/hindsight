@@ -41,7 +41,7 @@ However you invoke it, Hindsight needs three inputs up front to run
 
 1. **Project root** — The directory to review.
 2. **File list**    — Which files to scan (defaults to enumerating the project root, capped at ~300 files as a guideline).
-3. **User goal**    — A defined purpose or use case for the project (e.g. "this service handles payment processing"). This is mandatory, Hindsight will stop and ask for it if you omitted.
+3. **User goal**    — A defined purpose or use case for the project (e.g. "this service handles payment processing"). This is mandatory, Hindsight will stop and ask for it if you omitted. If the goal you give is too bare to anchor a review (e.g. "make it faster"), Hindsight will instead propose three concrete hypotheses for what you likely mean, each with a short checklist of the files/modules that matter for it, and ask you to pick one before continuing.
 
 
 Example invocation:
@@ -70,3 +70,4 @@ Hindsight also cross-references every Documentation Gaps finding against the act
 | 6 | User Feedback Integration Loop. Implement basic tracking logic.                 | Done  |                               |
 | 7 | Weighted Decision Matrix Generator. Score 3+ candidate solutions for the single most critical finding. | Done | /scripts/render_decision_matrix.py |
 | 8 | Cross-Reference Documentation Gap Detection. List public elements missing doc-comments/usage examples. | Done | SKILL.md Steps 3 & 5 (prompt-only) |
+| 9 | Goal Refinement Hypothesis Engine. Propose 3 concrete hypotheses when the stated goal is too bare. | Done | SKILL.md Step 1 item 4 (prompt-only) |
