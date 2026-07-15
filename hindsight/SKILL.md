@@ -147,7 +147,54 @@ Group related symptoms into one finding with one root cause rather than
 listing each symptom separately — the user acts on findings, and five
 findings with the same fix are one finding.
 
-## Step 4 — Rank and Render `inHindsight.md`
+## Step 4 — Weighted Decision Matrix: The Single Most Critical Finding
+
+Every finding from Step 3 carries one `Suggested LLM Action Prompt` — a
+single fix. For the **one** finding that matters most, a single fix
+understates the decision: there is usually more than one reasonable way to
+address it, and the trade-off between them is exactly what a senior
+engineer wants surfaced, not decided for them by the review.
+
+1. **Identify the single most critical finding** across all areas and
+   buckets from Step 3 — the one whose resolution would move `user_goal`
+   the most. This is normally the (or a) High Impact / Low Effort finding;
+   if none exists, take the highest-impact finding overall. Exactly one
+   finding gets this treatment, no matter how many findings the review has.
+2. **Generate three or more genuinely distinct candidate solutions** for
+   that finding's root cause — not the same fix worded three ways. Each
+   candidate needs:
+   - `solution` — a short name for the approach.
+   - `impact` — estimated impact, 1 (marginal) to 5 (transformative),
+     scored against `user_goal`.
+   - `effort` — estimated development effort, 1 (trivial) to 5 (major
+     undertaking).
+   - `argument` — one or two sentences on why this candidate scores as it
+     does, and its main risk or trade-off.
+3. **Render the comparison** with `scripts/render_decision_matrix.py`,
+   passing the candidates as a JSON array:
+
+   ```bash
+   echo '<JSON array of candidates>' | scripts/render_decision_matrix.py
+   ```
+
+   The script drops any candidate missing a required field or with
+   impact/effort outside 1-5, then prints a four-column Markdown table
+   (Solution Name, Estimated Impact, Development Effort, Argument). It
+   exits 1 if fewer than three valid candidates remain — if that happens,
+   there isn't a real decision to present; fold the rationale for the
+   single viable approach back into that finding's `Rationale` instead of
+   forcing a matrix.
+4. **Attach the table to the finding**, not in place of its existing
+   fields — see the `**Decision Matrix**` subsection in the Step 5
+   template below. The finding keeps its normal `Issue`, `Rationale`,
+   `Impact/Effort` bucket placement, and its own `Suggested LLM Action
+   Prompt`; the matrix is additional context for choosing between
+   approaches, appended directly beneath it.
+
+Every other finding is unaffected — this step runs exactly once per
+review, only for the single most critical finding.
+
+## Step 5 — Rank and Render `inHindsight.md`
 
 Render the findings into `<project_root>/inHindsight.md`. This step is
 presentation: every finding appears exactly once, none are added, dropped,
@@ -162,7 +209,7 @@ Use this exact structure:
 <What was reviewed, against what goal, how many findings, the one-paragraph
 "knowing what we know now" verdict.>
 
-## Since Last Review          <!-- only on re-runs; see Step 5 -->
+## Since Last Review          <!-- only on re-runs; see Step 6 -->
 ...
 
 ## ⚡ High Impact / Low Effort
@@ -175,6 +222,9 @@ Use this exact structure:
 ```text
 <LLM_Prompt verbatim>
 ```
+
+**Decision Matrix**          <!-- only on the single most critical finding; see Step 4 -->
+<rendered table from scripts/render_decision_matrix.py>
 
 ## 🏗️ High Impact / High Effort
 ...
@@ -193,8 +243,11 @@ Rules:
 - Reproduce each `LLM_Prompt` **verbatim** inside its fenced code block; it
   is the field the user copies out, so it must never be summarized or edited
   during rendering.
+- The `**Decision Matrix**` subsection appears under exactly one finding —
+  the single most critical one identified in Step 4 — never under more
+  than one, and never in place of that finding's own fields.
 
-## Step 5 — Re-Runs: Track What Was Acted On
+## Step 6 — Re-Runs: Track What Was Acted On
 
 Success for Hindsight is measured by whether the user *implements* its
 suggestions — so every run after the first must close the loop.
@@ -235,6 +288,10 @@ unless the user asks.
 - Never weaken a finding because it implicates a recent or deliberate
   decision — retrospective judgment of reasonable-at-the-time decisions is
   the entire point.
+- Never manufacture Decision Matrix candidates to hit the three-solution
+  minimum. If the single most critical finding truly has only one
+  reasonable approach, say so in that finding's `Rationale` and skip the
+  matrix rather than padding it with near-duplicate options.
 
 ## Deterministic Helper Scripts
 
@@ -267,6 +324,18 @@ scripts/aggregate_context.sh --root <path> --files "a.py,b.py,..." \
 - `render_output.py` — groups the JSON findings by Impact/Effort then Area
   and writes `inHindsight.md` (`--out` to override); off-spec Impact/Effort
   labels render in their own section rather than being dropped.
+- `render_decision_matrix.py` — Step 4's renderer. Takes a JSON array of
+  `{solution, impact, effort, argument}` candidates (stdin or a file arg)
+  and prints a four-column Markdown table; drops any candidate missing a
+  field or with `impact`/`effort` outside 1-5, and exits 1 if fewer than
+  three valid candidates remain. Independent of the `parse_findings.py` /
+  `render_output.py` pair above — it does not touch the five-label finding
+  contract, so it can be changed on its own.
+
+```bash
+echo '[{"solution": "...", "impact": 1-5, "effort": 1-5, "argument": "..."}, ...]' \
+  | scripts/render_decision_matrix.py
+```
 
 Format coupling to respect: `parse_findings.py`'s label regex assumes Step
 3's bold-label output format, and `render_output.py`'s Area grouping is a
