@@ -54,6 +54,8 @@ Hindsight writes its findings to `inHindsight.md` at the project root. Each find
 
 Hindsight **only ever writes that one file**; it never modifies your project's code directly. Run it again later in the same project and it will also report which of its previous findings you've since resolved.
 
+For the single most critical finding in each review, Hindsight also generates a weighted decision matrix: three or more distinct candidate solutions scored by Estimated Impact and Development Effort (1-5), rendered as a table directly beneath that finding — so the highest-leverage issue comes with options to weigh, not just one prescribed fix.
+
 ## Tasklog
 
 | # | Task | Status | Notes|
@@ -64,3 +66,4 @@ Hindsight **only ever writes that one file**; it never modifies your project's c
 | 4 | Structured Output Parsing. Implement parsing logic for the LLM's response.      | Done  | /scripts/parse_findings.py    |
 | 5 | Output Generation (`inHindsight.md`). Develop a module to render the output.    | Done  | /scripts/render_output.py     |
 | 6 | User Feedback Integration Loop. Implement basic tracking logic.                 | Done  |                               |
+| 7 | Weighted Decision Matrix Generator. Score 3+ candidate solutions for the single most critical finding. | Done | /scripts/render_decision_matrix.py |
