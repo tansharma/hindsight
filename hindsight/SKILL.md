@@ -122,6 +122,27 @@ Cover all three areas, with **at least one finding in each**:
 - **Documentation Gaps** — docs that are missing, stale, or actively
   misleading relative to what the code now does and what the goal needs.
 
+**Cross-Reference Gap Report (backs the Documentation Gaps findings).**
+General impressions of "docs are thin" aren't actionable; back every
+Documentation Gaps finding with specifics. While reading the code (Step 2),
+track every public function, class, or interface — prioritizing ones tied
+to core business logic per `user_goal` — that lacks either:
+
+- a preceding doc-comment in the convention idiomatic to that file's
+  language (docstring, JSDoc/TSDoc, Rustdoc, Godoc, etc. — whatever the
+  codebase's own language uses), or
+- a corresponding usage example in the project's primary documentation
+  (READMEs, usage guides).
+
+For each such element, record `element` (its name), `type` (Function,
+Class, or Interface), and `location` (where the missing doc-comment or
+usage example should be added — a file path, or a specific doc section).
+Report every genuine gap found; never manufacture entries to reach a
+particular count — if the codebase is well-documented, say so and keep the
+list short or empty. This list renders once, as the Cross-Reference Gap
+Report in Step 5, backing whichever Documentation Gaps findings exist —
+it is not itself one of the five finding fields below.
+
 Write each finding with these five bold-labeled fields, in this order. (This
 exact `**Label**` format is a contract: `scripts/parse_findings.py` splits
 findings on each `**Area**` label and recognizes only these five labels — do
@@ -232,6 +253,11 @@ Use this exact structure:
 ...
 ## 🕐 Low Impact / High Effort
 ...
+
+## 📋 Cross-Reference Documentation Gap Report     <!-- see Step 3 -->
+| Element Name | Type | Suggested Location |
+|---|---|---|
+| ... | Function/Class/Interface | ... |
 ````
 
 Rules:
@@ -246,6 +272,11 @@ Rules:
 - The `**Decision Matrix**` subsection appears under exactly one finding —
   the single most critical one identified in Step 4 — never under more
   than one, and never in place of that finding's own fields.
+- The `Cross-Reference Documentation Gap Report` appears **once**, as its
+  own section after the four Impact/Effort buckets — never duplicated per
+  bucket, even though Documentation Gaps findings themselves may be spread
+  across more than one bucket. Omit the section entirely (not an empty
+  table) if Step 3 found no genuine gaps.
 
 ## Step 6 — Re-Runs: Track What Was Acted On
 
@@ -292,6 +323,9 @@ unless the user asks.
   minimum. If the single most critical finding truly has only one
   reasonable approach, say so in that finding's `Rationale` and skip the
   matrix rather than padding it with near-duplicate options.
+- Never manufacture Cross-Reference Gap Report entries to hit a target
+  count. List only elements that genuinely lack a doc-comment or usage
+  example; a short or empty report is a legitimate outcome, not a failure.
 
 ## Deterministic Helper Scripts
 
