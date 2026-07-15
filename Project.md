@@ -1,6 +1,13 @@
 # Sill Creation Specification
 
-*note* this is a sample Project.md file to illustrate the file structure. This content gets copied verbatim into the P-Prompt when its created. You should define a Projct.md in your repo in a similar structure to provide project specific context to the LLM.
+> **Note**
+>
+> This is a sample `Project.md` file that illustrates the expected structure. Its contents are copied verbatim into the P-Prompt when it's created.
+> 
+> Define a `Project.md` in your repository using a similar structure to provide project-specific context to the LLM.
+> 
+> If you plan to use this file, delete this section first.
+> 
 
 ## Idea
 Hindsight is a developer skill (`/hindsight`) that analyzes a project directory and all associated documentation. It performs a comprehensive architectural and technical review based on explicit user goals, outputting actionable insights to `inHindsight.md`.
