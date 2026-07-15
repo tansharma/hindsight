@@ -76,7 +76,34 @@ prose, or earlier conversation; there is no fixed CLI syntax.
    infer the goal — a review anchored to a guessed goal produces confident,
    wrong priorities.
 
-Once valid, restate the scope in one compact confirmation before analyzing,
+Once `user_goal` is present, check whether it is concrete enough to anchor
+a review, or too bare to do so:
+
+4. **Goal specificity (Hypothesis Engine).** A goal only needs refining if
+   it names no target dimension, subsystem, or business process at all —
+   e.g. "make it faster", "improve it", "clean this up". A goal that
+   already names one, even loosely (e.g. "Optimize for low read latency",
+   "This service handles payment processing"), is concrete enough; proceed
+   with it as stated. For a genuinely bare goal:
+   - Do a **lightweight structural skim only** — the directory tree and
+     top-level READMEs, not the full `file_list` contents (that read
+     happens in Step 2, after scope is settled, so it isn't spent on a
+     goal the user is about to redirect).
+   - From that skim, identify the project's apparent core business
+     processes or functional areas (e.g. payments, auth, ingestion).
+   - Generate **three distinct, concrete hypotheses** for what the real
+     objective might be, each with a short label, a restated concrete
+     goal, and a mini-scope checklist of the key files/modules that would
+     need immediate review to test that specific hypothesis.
+   - **Stop and present all three; do not proceed.** Ask the user to pick
+     one, blend them, or state their own refined goal instead. Treat
+     whatever they confirm as the `user_goal` for the rest of the review.
+     A hypothesis is a candidate for the user to choose, never a
+     replacement the skill decides on its own — the same "never infer the
+     goal" rule from item 3 applies here to each individual hypothesis.
+
+Once valid (and, if refined, once the user has confirmed a specific goal),
+restate the scope in one compact confirmation before analyzing,
 so the user can catch a mis-scoped run early:
 
 ```json
@@ -326,6 +353,11 @@ unless the user asks.
 - Never manufacture Cross-Reference Gap Report entries to hit a target
   count. List only elements that genuinely lack a doc-comment or usage
   example; a short or empty report is a legitimate outcome, not a failure.
+- Never auto-select a Hypothesis Engine hypothesis and proceed without the
+  user confirming one. Presenting three well-reasoned guesses and picking
+  the "best" one yourself is exactly the kind of inferred goal item 3 in
+  Step 1 already forbids — the point is to hand the choice to the user,
+  not to make a better-informed guess than before.
 
 ## Deterministic Helper Scripts
 
