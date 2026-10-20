@@ -121,33 +121,78 @@ if [[ -z "$file_context" ]]; then
   echo "Warning: file context block is empty; the P-Prompt will have no codebase content to analyze." >&2
 fi
 
-cat <<PPROMPT
-You are acting as a Senior Technical Architect conducting a comprehensive, evidence-based review of the codebase below, on behalf of an experienced (mid-to-senior) engineering audience.
+# Static prompt text uses quoted heredocs so the JSON skeleton's braces,
+# backticks, and "$" are never shell-expanded; variable parts go through
+# printf so their contents are inserted literally.
+cat <<'PPROMPT'
+You are acting as a Senior Technical Architect conducting a retrospective, evidence-based review of the codebase below, on behalf of an experienced (mid-to-senior) engineering audience. Judge it the way you would a system that has already been built: with full knowledge of how it turned out.
 
 ## Project Context
-$project_context
-
+PPROMPT
+printf '%s\n\n' "$project_context"
+cat <<'PPROMPT'
 ## User Goal (mandatory — evaluate everything against this)
-"$goal"
-
+PPROMPT
+printf '"%s"\n\n' "$goal"
+cat <<'PPROMPT'
 Every finding you raise must be justified in terms of how it helps or hinders this stated goal. Do not raise generic best-practice nitpicks that have no bearing on the goal.
 
 ## Codebase Context
-$file_context
+PPROMPT
+printf '%s\n\n' "$file_context"
+cat <<'PPROMPT'
+## How to Review
+Work in two passes:
+1. **Reconstruct what was intended.** Read the documentation, design notes, and TODO/FIXME comments in the context above first, and note what the authors believed and planned at the time.
+2. **Judge the outcome against that intent and the user's goal.** Then read the code knowing how the story ended: where did the project drift from its own stated intent, which early decisions (sensible then) now hold the goal back, and which workarounds were repeated until they became load-bearing?
+
+The test for a high-value finding: would it have been visible on day one from a single file, or does it only become obvious now, with the whole project and its goal in view? Both kinds are reportable; prioritize the second.
 
 ## Your Task
-Analyze the project above and identify concrete improvement opportunities across all three of the following areas — you must cover at least one finding in each:
-1. **Architectural Patterns** — structural, design-level issues (e.g. coupling, missing abstractions, scalability constraints, misapplied patterns).
-2. **Code Quality** — implementation-level issues (e.g. readability, error handling, duplication, testability) found in the actual file contents above.
+Identify concrete improvement opportunities across all three of the following areas — you must cover at least one finding in each:
+1. **Architectural Patterns** — structural, design-level issues: coupling that grew instead of being chosen, abstractions the project outgrew, patterns that fit the original idea but not the stated goal.
+2. **Code Quality** — implementation-level issues in the actual file contents above: accumulated technical debt, duplicated workarounds, fragile contracts between components.
 3. **Documentation Gaps** — missing, stale, or misleading documentation relative to what the code actually does and what the user's goal requires.
 
+Group related symptoms into one finding with one root cause; five findings with the same fix are one finding. Never invent findings to fill an area.
+
 For every finding, provide:
-- **Area** — one of Architectural Pattern / Code Quality / Documentation Gap.
-- **Issue** — a specific, concrete description of the problem, citing the file(s)/section(s) involved.
-- **Rationale** — why this matters specifically for the stated user goal, not in the abstract.
-- **Impact/Effort** — classify the finding into one of four ranked groups, per project.md's decision-matrix requirement: "High Impact / Low Effort", "High Impact / High Effort", "Low Impact / Low Effort", or "Low Impact / High Effort".
-- **Suggested LLM Action Prompt** — a concrete, ready-to-use prompt an engineer could hand to an LLM coding assistant to implement this specific improvement.
+- **area** — exactly one of "Architectural Patterns", "Code Quality", "Documentation Gaps".
+- **title** — a short title.
+- **issue** — what is wrong, concretely, naming the files/modules involved.
+- **rationale** — the retrospective judgment in three beats: what made this choice reasonable (or invisible) at the time; what is clear now that the whole project is in view; and why it matters to the user's goal.
+- **impact** and **effort** — each exactly "High" or "Low".
+- **evidence** — the file paths (with line numbers where useful) that show the problem.
+- **prompt** — a self-contained prompt the user can paste into any coding agent to implement the fix: name the specific files, describe the current state and the desired end state, and restate the relevant slice of the user's goal. The agent receiving it will not have this review as context.
+- **done_when** — how to verify the fix is complete: a test that passes, a command whose output changes, or an observable behaviour.
+
+For the single most critical finding only (the one whose resolution would move the goal the most), add **decision_matrix**: three or more genuinely distinct candidate solutions, each with "solution" (a short name), "impact" (integer 1-5, scored against the goal), "effort" (integer 1-5), and "argument" (one or two sentences on the score and its main trade-off). If there are not three real options, omit decision_matrix and explain the single viable approach in that finding's rationale.
+
+Also list, in **gap_report**, every public function, class, or interface — prioritizing ones tied to the goal's core logic — that lacks either a doc-comment in its language's idiomatic convention or a usage example in the primary documentation. Never manufacture entries; an empty list is a legitimate outcome.
 
 ## Output Format
-Write your findings as clear prose/markdown, one finding at a time, using the five labeled fields above for each. Do not skip any of the three improvement areas. Do not output JSON — a later step will parse this into structured data. Do not include any other commentary before or after the findings.
+Respond with a single JSON object and nothing else — no prose before or after it. Use exactly this shape:
+
+{
+  "summary": "One paragraph: the knowing-what-we-know-now verdict.",
+  "findings": [
+    {
+      "area": "Code Quality",
+      "title": "...",
+      "issue": "...",
+      "rationale": "...",
+      "impact": "High",
+      "effort": "Low",
+      "evidence": ["path/to/file.ext:42"],
+      "prompt": "...",
+      "done_when": "...",
+      "decision_matrix": [
+        {"solution": "...", "impact": 4, "effort": 2, "argument": "..."}
+      ]
+    }
+  ],
+  "gap_report": [
+    {"element": "...", "type": "Function", "location": "..."}
+  ]
+}
 PPROMPT

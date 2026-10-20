@@ -166,30 +166,67 @@ Class, or Interface), and `location` (where the missing doc-comment or
 usage example should be added — a file path, or a specific doc section).
 Report every genuine gap found; never manufacture entries to reach a
 particular count — if the codebase is well-documented, say so and keep the
-list short or empty. This list renders once, as the Cross-Reference Gap
-Report in Step 5, backing whichever Documentation Gaps findings exist —
-it is not itself one of the five finding fields below.
+list short or empty. These entries go in the findings document's
+`gap_report` array (below); they render once, as the Cross-Reference Gap
+Report, backing whichever Documentation Gaps findings exist.
 
-Write each finding with these five bold-labeled fields, in this order. (This
-exact `**Label**` format is a contract: `scripts/parse_findings.py` splits
-findings on each `**Area**` label and recognizes only these five labels — do
-not add new bold-labeled fields or rename these.)
+**Record the review as a findings document** — one JSON object whose shape
+is the contract in `scripts/findings_schema.py`. The renderer (Step 5) turns
+it into both deliverables, so write the content here and leave presentation
+to the script:
 
-- **Area** — one of the three areas above.
-- **Issue** — what is wrong, concretely, naming files/modules.
-- **Rationale** — the retrospective judgment, in three beats: what made this
-  choice reasonable (or invisible) at the time; what is clear *now* that the
-  whole project and its history are in view; and why it matters to the
-  user's stated goal. This field is where the hindsight lives — a rationale
-  that could have been written on day one belongs to a linter, not here.
-- **Impact/Effort** — exactly one of: "High Impact / Low Effort",
-  "High Impact / High Effort", "Low Impact / Low Effort",
-  "Low Impact / High Effort".
-- **Suggested LLM Action Prompt** — a self-contained prompt the user can
-  paste into any coding agent to implement the fix. It must name the
-  specific files, describe the current state, state the desired end state,
-  and restate the relevant slice of `user_goal` — the agent receiving it
-  will not have this review as context.
+```json
+{
+  "project": "<project name>",
+  "summary": "<one paragraph: the 'knowing what we know now' verdict>",
+  "findings": [
+    {
+      "id": "H-002",
+      "area": "Architectural Patterns | Code Quality | Documentation Gaps",
+      "title": "<short title>",
+      "issue": "...",
+      "rationale": "...",
+      "impact": "High | Low",
+      "effort": "High | Low",
+      "evidence": ["path/to/file.ext:42"],
+      "prompt": "...",
+      "done_when": "..."
+    }
+  ],
+  "gap_report": [{"element": "...", "type": "Function | Class | Interface", "location": "..."}],
+  "since_last_review": []
+}
+```
+
+Each finding's fields:
+
+- **`id`** — omit for a new finding (the renderer assigns the next
+  unused `H-NNN`); on a re-run, a finding carried forward keeps its
+  previous id (Step 6).
+- **`area`** — one of the three areas above.
+- **`title`** — a short heading for the finding.
+- **`issue`** — what is wrong, concretely, naming files/modules.
+- **`rationale`** — the retrospective judgment, in three beats: what made
+  this choice reasonable (or invisible) at the time; what is clear *now*
+  that the whole project and its history are in view; and why it matters
+  to the user's stated goal. This field is where the hindsight lives — a
+  rationale that could have been written on day one belongs to a linter,
+  not here.
+- **`impact`** / **`effort`** — each exactly `"High"` or `"Low"`; together
+  they place the finding in one of the four Impact/Effort buckets.
+- **`evidence`** — the file paths (with line numbers where useful) that
+  show the problem. Optional, but include it whenever the issue points at
+  specific code.
+- **`prompt`** — a self-contained prompt the user can paste into any coding
+  agent to implement the fix. It must name the specific files, describe the
+  current state, state the desired end state, and restate the relevant
+  slice of `user_goal` — the agent receiving it will not have this review
+  as context.
+- **`done_when`** — **required**: how to verify the fix is complete — a
+  test that passes, a command whose output changes, or an observable
+  behaviour. The renderer appends it to the copyable prompt, so the agent
+  that receives the prompt knows when to stop. A finding without it is
+  rejected as incomplete.
 
 Group related symptoms into one finding with one root cause rather than
 listing each symptom separately — the user acts on findings, and five
@@ -197,8 +234,7 @@ findings with the same fix are one finding.
 
 ## Step 4 — Weighted Decision Matrix: The Single Most Critical Finding
 
-Every finding from Step 3 carries one `Suggested LLM Action Prompt` — a
-single fix. For the **one** finding that matters most, a single fix
+Every finding from Step 3 carries one `prompt` — a single fix. For the **one** finding that matters most, a single fix
 understates the decision: there is usually more than one reasonable way to
 address it, and the trade-off between them is exactly what a senior
 engineer wants surfaced, not decided for them by the review.
@@ -218,66 +254,89 @@ engineer wants surfaced, not decided for them by the review.
      undertaking).
    - `argument` — one or two sentences on why this candidate scores as it
      does, and its main risk or trade-off.
-3. **Render the comparison** with `scripts/render_decision_matrix.py`,
-   passing the candidates as a JSON array on stdin through a quoted
-   heredoc (not `echo '...'`, which breaks as soon as an argument contains
-   an apostrophe). `<skill-dir>` is the directory this SKILL.md lives in —
-   see "Deterministic Helper Scripts" below:
+3. **Attach the candidates to that finding** as a `decision_matrix` array
+   in the findings document — in addition to its existing fields, not in
+   place of them:
 
-   ```bash
-   python3 "<skill-dir>/scripts/render_decision_matrix.py" <<'CANDIDATES'
-   <JSON array of candidates>
-   CANDIDATES
+   ```json
+   "decision_matrix": [
+     {"solution": "...", "impact": 4, "effort": 2, "argument": "..."},
+     ...
+   ]
    ```
 
-   The script drops any candidate missing a required field or with
-   impact/effort outside 1-5, then prints a four-column Markdown table
-   (Solution Name, Estimated Impact, Development Effort, Argument). It
-   exits 1 if fewer than three valid candidates remain — if that happens,
-   there isn't a real decision to present; fold the rationale for the
-   single viable approach back into that finding's `Rationale` instead of
-   forcing a matrix.
-4. **Attach the table to the finding**, not in place of its existing
-   fields — see the `**Decision Matrix**` subsection in the Step 5
-   template below. The finding keeps its normal `Issue`, `Rationale`,
-   `Impact/Effort` bucket placement, and its own `Suggested LLM Action
-   Prompt`; the matrix is additional context for choosing between
-   approaches, appended directly beneath it.
+   The renderer (Step 5) drops any candidate missing a required field or
+   with impact/effort outside 1-5 and renders the rest as a four-column
+   table (Solution Name, Estimated Impact, Development Effort, Argument)
+   directly beneath that finding's prompt. If fewer than three valid
+   candidates remain it skips the table with a warning — there isn't a real
+   decision to present, so fold the rationale for the single viable
+   approach into that finding's `rationale` instead of forcing a matrix.
+   It refuses to render at all if more than one finding carries a
+   `decision_matrix`.
+4. **The finding keeps everything else** — its `issue`, `rationale`,
+   bucket placement, and its own `prompt`; the matrix is additional context
+   for choosing between approaches.
 
 Every other finding is unaffected — this step runs exactly once per
 review, only for the single most critical finding.
 
-## Step 5 — Rank and Render `inHindsight.md`
+## Step 5 — Rank and Render `inHindsight.md` and `inHindsight.json`
 
-Render the findings into `<project_root>/inHindsight.md`. This step is
-presentation: every finding appears exactly once, none are added, dropped,
-or re-worded.
+Pass the findings document to the renderer on stdin through a quoted
+heredoc (not `echo '...'`, which breaks as soon as a field contains an
+apostrophe). `<skill-dir>` is the directory this SKILL.md lives in — see
+"Deterministic Helper Scripts" below:
 
-Use this exact structure:
+```bash
+python3 "<skill-dir>/scripts/render_output.py" --root "<project_root>" --goal "<user_goal>" <<'FINDINGS'
+<findings document JSON>
+FINDINGS
+```
+
+It writes `<project_root>/inHindsight.md` (for people) and
+`<project_root>/inHindsight.json` (the normalized document with every id
+assigned — for agents, and for the next re-run). If either file already
+exists, both are first moved into `<project_root>/hindsight-history/`
+with a timestamp prefix, so no earlier review is lost. Read its stderr:
+dropped findings, skipped matrices, and reassigned ids are reported there —
+fix the document and re-run rather than accepting a lossy render.
+
+This step is presentation: every finding appears exactly once, none are
+added, dropped, or re-worded. The renderer produces this structure:
 
 ````markdown
 # In Hindsight — <project name>
 
+- **Project root:** ... / **User goal:** ... / **Generated:** ... / **Total findings:** ...
+
 ## Executive Summary
-<What was reviewed, against what goal, how many findings, the one-paragraph
-"knowing what we know now" verdict.>
+<summary, then the finding count by area>
 
 ## Since Last Review          <!-- only on re-runs; see Step 6 -->
-...
+<n> previous finding(s): <tally>.
+- **H-001 <title>** — Resolved: <evidence>
 
 ## ⚡ High Impact / Low Effort
 ### <Area>
-#### <n>. <short finding title>
+#### H-002. <title>
 - **Issue:** ...
 - **Rationale:** ...
+- **Impact/Effort:** High Impact / Low Effort
+- **Evidence:** `path:line`
+- **Done when:** ...
 
 **LLM Action Prompt**
+
 ```text
-<LLM_Prompt verbatim>
+<prompt verbatim>
+
+Done when:
+<done_when verbatim>
 ```
 
 **Decision Matrix**          <!-- only on the single most critical finding; see Step 4 -->
-<rendered table from scripts/render_decision_matrix.py>
+| Solution Name | Estimated Impact (1-5) | Development Effort (1-5) | Argument |
 
 ## 🏗️ High Impact / High Effort
 ...
@@ -292,59 +351,62 @@ Use this exact structure:
 | ... | Function/Class/Interface | ... |
 ````
 
-Rules:
+What the renderer guarantees (and what to follow if you ever have to write
+the files by hand because `python3` is unavailable):
 
-- Emit the four Impact/Effort sections in exactly that priority order; omit
-  any bucket with zero findings instead of printing an empty header.
-- Within each bucket, sub-group by Area under `###` headers — never
-  interleave findings from different areas.
-- Reproduce each `LLM_Prompt` **verbatim** inside its fenced code block; it
-  is the field the user copies out, so it must never be summarized or edited
-  during rendering.
+- The four Impact/Effort sections appear in exactly that priority order;
+  a bucket with zero findings is omitted rather than printed empty.
+- Within each bucket, findings are sub-grouped by Area under `###`
+  headers — findings from different areas are never interleaved.
+- Each `prompt` is reproduced **verbatim**, followed by its `done_when`,
+  inside a code fence longer than any fence the prompt itself contains; it
+  is the text the user copies out, so it is never summarized or edited.
 - The `**Decision Matrix**` subsection appears under exactly one finding —
-  the single most critical one identified in Step 4 — never under more
-  than one, and never in place of that finding's own fields.
-- The `Cross-Reference Documentation Gap Report` appears **once**, as its
-  own section after the four Impact/Effort buckets — never duplicated per
-  bucket, even though Documentation Gaps findings themselves may be spread
-  across more than one bucket. Omit the section entirely (not an empty
-  table) if Step 3 found no genuine gaps.
+  the single most critical one from Step 4.
+- The `Cross-Reference Documentation Gap Report` appears **once**, after
+  the four buckets, and is omitted entirely (not an empty table) when
+  `gap_report` is empty.
 
 ## Step 6 — Re-Runs: Track What Was Acted On
 
 Success for Hindsight is measured by whether the user *implements* its
 suggestions — so every run after the first must close the loop.
 
-Before writing the new file, check whether `<project_root>/inHindsight.md`
-already exists:
+Before writing the new review, check whether a previous one exists:
 
-1. **Extract prior findings** from the existing file (its structure is the
-   template above, so headings and Issue/Rationale fields identify each
-   finding).
+1. **Extract prior findings** from `<project_root>/inHindsight.json` — each
+   has a stable `id`, its `issue`, and its `done_when`. If only an older
+   `inHindsight.md` exists (from before the JSON sidecar), read the findings
+   from its headings and Issue/Rationale fields instead.
 2. **Verify each against the current code** — not against memory of the
-   last run. Classify each as:
-   - **Resolved** — the code now reflects the suggested change (cite the
+   last run. A prior finding's `done_when` is the first thing to check.
+   Classify each as:
+   - **resolved** — the code now reflects the suggested change (cite the
      evidence: file, function, or doc that changed).
-   - **Partially resolved** — started but incomplete; say what remains.
-   - **Unresolved** — unchanged.
-   - **Obsolete** — no longer applicable (the code it referred to was
+   - **partial** — started but incomplete; say what remains.
+   - **unresolved** — unchanged.
+   - **obsolete** — no longer applicable (the code it referred to was
      removed, or the goal changed).
-3. **Render a `## Since Last Review` section** immediately after the
-   Executive Summary: a one-line tally (e.g. "5 previous findings: 2
-   resolved, 1 partial, 2 unresolved") followed by one line per prior
-   finding with its status and evidence.
-4. **Carry unresolved and partial findings forward** into the new review's
-   buckets, re-ranked if circumstances changed, so the new `inHindsight.md`
-   is always the single complete, current picture.
+3. **Record the result in `since_last_review`** — one entry per prior
+   finding: `{"id", "title", "status", "evidence"}`. The renderer prints
+   the `## Since Last Review` section immediately after the Executive
+   Summary and computes the tally line itself.
+4. **Carry unresolved and partial findings forward** into the new
+   document's `findings` **with their original `id`**, re-ranked if
+   circumstances changed, so the new review is always the single complete,
+   current picture and its ids line up with the last one. Give genuinely
+   new findings no id; the renderer numbers them after the previous run's
+   highest id, so a number is never reused for a different finding.
 
-Then overwrite `inHindsight.md` with the new review. The old file's content
-lives on in the `Since Last Review` accounting; do not keep versioned copies
-unless the user asks.
+The renderer archives the previous `inHindsight.md`/`.json` into
+`hindsight-history/` before writing the new pair — no manual copying is
+needed.
 
 ## Guardrails
 
-- Hindsight **reviews**; it does not modify the user's code. The only file
-  it writes is `inHindsight.md`.
+- Hindsight **reviews**; it does not modify the user's code. The only
+  files it writes are `inHindsight.md`, `inHindsight.json`, and the
+  archived copies of earlier reviews under `hindsight-history/`.
 - Never invent findings to fill an area. If an area genuinely has nothing
   worth reporting (rare in practice), say so explicitly in that area's
   section rather than manufacturing a nit.
@@ -400,28 +462,38 @@ bash "$S/aggregate_context.sh" --root <path> --files "a.py,b.py,..." \
   read/missing/skipped/truncated/byte counts.
 - `build_prompt.sh` — assembles the architect P-Prompt from root, goal, and
   the context block (stdin or `--context-file`); pure templating, no LLM
-  call.
-- `parse_findings.py` — parses an executed review's prose into a JSON array
-  of `{Area, Issue, Rationale, Impact/Effort, LLM_Prompt}` objects; starts
-  a new finding at each `**Area**` label that begins a line, tolerates
-  label punctuation inside or after the bold (`**Area:**`, `**Area**:`),
-  ignores labels inside fenced code and repeated mid-line mentions, warns
-  about and drops incomplete findings, exits 1 if none parse.
-  `scripts/mock_review.txt` is a hand-written 3-finding review for
-  exercising it without an LLM.
-- `render_output.py` — groups the JSON findings by Impact/Effort then Area
-  and writes `inHindsight.md` (`--out` to override); loosely worded
-  Impact/Effort values ("high impact, low effort (quick win)") are mapped
-  to the four canonical buckets, truly off-spec labels render in their own
-  section rather than being dropped, and each prompt's code fence is sized
-  so a prompt containing its own ``` block can't break out of it.
-- `render_decision_matrix.py` — Step 4's renderer. Takes a JSON array of
-  `{solution, impact, effort, argument}` candidates (stdin or a file arg)
-  and prints a four-column Markdown table; drops any candidate missing a
-  field or with `impact`/`effort` outside 1-5, and exits 1 if fewer than
-  three valid candidates remain. Independent of the `parse_findings.py` /
-  `render_output.py` pair above — it does not touch the five-label finding
-  contract, so it can be changed on its own.
+  call. The prompt carries this skill's two-pass review method and asks
+  the model to answer with a findings document in JSON.
+- `findings_schema.py` — the findings-document contract (documented in its
+  docstring) shared by the two scripts below: normalization, area and
+  Impact/Effort canonicalization, and `H-NNN` id assignment. Not run
+  directly.
+- `parse_findings.py` — turns an executed review into a findings document.
+  JSON input (a document or a bare array, optionally inside one ```json
+  fence) is validated and normalized; anything else is parsed as the older
+  bold-label prose (`**Area**` … `**Done When**`), starting a new finding at
+  each line-initial `**Area**` label, tolerating punctuation inside or
+  after the bold, and ignoring labels inside fenced code or repeated
+  mid-line mentions. Warns about and drops incomplete findings (including
+  any without `done_when`); exits 1 if none survive.
+  `scripts/mock_review.txt` (prose) and `scripts/mock_review.json` (a full
+  document with a decision matrix and gap report) exercise it without an
+  LLM.
+- `render_output.py` — Step 5's renderer: findings document (or bare array)
+  in, `inHindsight.md` + `inHindsight.json` out (`--out` / `--json-out` to
+  override; `--root`/`--goal` may instead come from the document). Archives
+  any previous pair into `hindsight-history/`, assigns ids without reusing
+  the previous run's numbers, maps loosely worded Impact/Effort values to
+  the four buckets (truly off-spec labels get their own section rather than
+  being dropped), sizes each prompt's code fence so a prompt containing its
+  own ``` block can't break out, and renders the Decision Matrix, Since
+  Last Review, and Gap Report sections. Exits 1 if more than one finding
+  carries a `decision_matrix`.
+- `render_decision_matrix.py` — the table renderer `render_output.py` uses
+  for Step 4. Also usable on its own to preview a matrix: takes a JSON
+  array of `{solution, impact, effort, argument}` candidates (stdin or a
+  file arg), drops any missing a field or with `impact`/`effort` outside
+  1-5, and exits 1 if fewer than three valid candidates remain.
 
 ```bash
 python3 "$S/render_decision_matrix.py" <<'CANDIDATES'
@@ -429,7 +501,8 @@ python3 "$S/render_decision_matrix.py" <<'CANDIDATES'
 CANDIDATES
 ```
 
-Format coupling to respect: `parse_findings.py`'s label regex assumes Step
-3's bold-label output format, and `render_output.py`'s Area grouping is a
-loose substring match. Change the finding format in Step 3 and these two
-scripts together, or not at all.
+Format coupling to respect: the findings-document shape is defined once,
+in `findings_schema.py`. Change a field there, in Step 3 above, and in
+`build_prompt.sh`'s output-format section together — `parse_findings.py`'s
+prose fallback (`FIELD_ALIASES`) only needs updating if the field should
+also be recognized in bold-label prose.

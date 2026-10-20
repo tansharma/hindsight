@@ -1,0 +1,45 @@
+{
+  "summary": "Knowing what we know now, the deterministic scripts and SKILL.md grew as two parallel descriptions of the same pipeline; most risk comes from keeping them in step.",
+  "findings": [
+    {
+      "area": "Architectural Patterns",
+      "title": "Validation rules live in two places",
+      "issue": "The three-input validation rules are restated in SKILL.md Step 1 and implemented again in `scripts/parse_args.sh`, with no single source of truth.",
+      "rationale": "Writing the rules into the skill first was reasonable while no script existed. Now that the script is authoritative, the two copies can silently drift, which undermines the reliable v1 the goal asks for.",
+      "impact": "High",
+      "effort": "Low",
+      "evidence": ["hindsight/SKILL.md:54", "hindsight/scripts/parse_args.sh:14"],
+      "prompt": "Make `scripts/parse_args.sh` the single source of truth for Hindsight's input rules (required root and goal, 300-file cap). Update SKILL.md Step 1 to refer to the script's rules instead of restating them, keeping the user-facing guidance about asking for missing inputs.",
+      "done_when": "The 300-file cap appears only in `parse_args.sh`, and SKILL.md Step 1 points to it.",
+      "decision_matrix": [
+        {"solution": "Script is the source of truth", "impact": 4, "effort": 2, "argument": "One place to change; the skill text loses some self-containment."},
+        {"solution": "SKILL.md is the source of truth", "impact": 3, "effort": 3, "argument": "Keeps the skill readable on its own, but the script must parse rules from prose or be kept in sync by hand."},
+        {"solution": "Shared config file read by both", "impact": 4, "effort": 4, "argument": "Removes drift entirely at the cost of a new file and loader in every consumer."}
+      ]
+    },
+    {
+      "area": "Code Quality",
+      "title": "Comma-separated file lists mis-split paths",
+      "issue": "`scripts/aggregate_context.sh` splits `--files` on commas, so any path containing a comma is silently broken into two missing files.",
+      "rationale": "Comma lists were the quickest CLI contract for T2. With up to 300 arbitrary project files in scope, one comma corrupts the context block without an error the review would notice.",
+      "impact": "Low",
+      "effort": "Low",
+      "evidence": ["hindsight/scripts/aggregate_context.sh"],
+      "prompt": "Change `scripts/parse_args.sh` and `scripts/aggregate_context.sh` to also accept a newline-delimited file list via `--files-from <path>`, keeping `--files` for compatibility.",
+      "done_when": "A test with a filename containing a comma reads that file intact through both scripts."
+    },
+    {
+      "area": "Documentation Gaps",
+      "title": "No on-ramp to the live project state",
+      "issue": "Nothing in README.md tells a new contributor that `handover.md` is the live-state file to read first.",
+      "rationale": "The scattered state files made sense while one person built the project session by session; a second contributor now has no entry point.",
+      "impact": "Low",
+      "effort": "High",
+      "prompt": "Add a short 'Where to start' paragraph at the top of README.md that names `handover.md` as the authoritative live-state file.",
+      "done_when": "README.md opens with a 'Where to start' paragraph naming `handover.md`."
+    }
+  ],
+  "gap_report": [
+    {"element": "parse_findings", "type": "Function", "location": "hindsight/scripts/parse_findings.py"}
+  ]
+}

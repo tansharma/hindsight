@@ -1,18 +1,21 @@
 #!/usr/bin/env python3
-"""T4 test script: parses the unstructured architect review produced by
-executing T3's P-Prompt into structured Improvement objects.
+"""T4 test script: turns the architect review produced by executing T3's
+P-Prompt into a findings document (the contract in findings_schema.py).
 
 Usage:
     scripts/parse_findings.py < review.txt
     scripts/parse_findings.py path/to/review.txt
 
-Input is the raw prose/markdown review, which per T3's "Output Format"
-instruction lists findings one at a time using five labeled fields:
+The P-Prompt asks the model for JSON. If the input is JSON — a findings
+document or a bare array, optionally wrapped in one ```json fence — it is
+validated and normalized. Otherwise it is parsed as the older prose format,
+which lists findings one at a time using six labeled fields:
     **Area** ...
     **Issue** ...
     **Rationale** ...
     **Impact/Effort** ...
     **Suggested LLM Action Prompt** ...
+    **Done When** ...
 Label punctuation (":", "-", em/en dash, or nothing — inside or after the
 bold, so "**Area:**" and "**Area**:" both work) and minor label wording
 (e.g. "LLM Action Prompt" vs "Suggested LLM Action Prompt") are tolerated.
@@ -24,19 +27,27 @@ and labels inside fenced code blocks are ignored — so a field value (most
 often the LLM prompt) that *mentions* "**Area**" or "**Issue**" is not
 split into a bogus new finding or truncated.
 
-Prints a JSON array of Improvement objects to stdout, each with exactly the
-keys: Area, Issue, Rationale, Impact/Effort, LLM_Prompt.
+Prints the findings document as JSON to stdout. Incomplete findings
+(including any without "Done When") are dropped with a stderr warning.
 
 Exit codes:
-    0  at least one complete finding parsed, JSON array printed
+    0  at least one complete finding parsed, document printed
     1  no input, or zero complete findings could be parsed
 """
 
 import json
+import os
 import re
 import sys
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from findings_schema import normalize_document  # noqa: E402
+
 FIELD_ALIASES = {
+    "done when": "Done_When",
+    "done-when": "Done_When",
+    "done_when": "Done_When",
+    "acceptance criteria": "Done_When",
     "area": "Area",
     "issue": "Issue",
     "rationale": "Rationale",
@@ -48,7 +59,9 @@ FIELD_ALIASES = {
     "llm prompt": "LLM_Prompt",
 }
 
-REQUIRED_KEYS = ["Area", "Issue", "Rationale", "Impact/Effort", "LLM_Prompt"]
+REQUIRED_KEYS = ["Area", "Issue", "Rationale", "Impact/Effort", "LLM_Prompt", "Done_When"]
+
+WHOLE_FENCE = re.compile(r"\A```[\w-]*[ \t]*\n(.*)\n```\Z", re.S)
 
 LABEL_PATTERN = re.compile(
     r"\*\*\s*("
@@ -140,6 +153,22 @@ def parse_findings(text):
     return [f for f in split_findings(text) if is_complete(f)]
 
 
+def as_json(text):
+    """Return the parsed JSON if text is a JSON object/array (optionally in
+    one surrounding code fence), else None."""
+    stripped = text.strip()
+    m = WHOLE_FENCE.match(stripped)
+    if m:
+        stripped = m.group(1).strip()
+    if not stripped.startswith(("{", "[")):
+        return None
+    try:
+        data = json.loads(stripped)
+    except json.JSONDecodeError:
+        return None
+    return data if isinstance(data, (dict, list)) else None
+
+
 def main():
     if len(sys.argv) > 1:
         with open(sys.argv[1], "r", encoding="utf-8") as fh:
@@ -150,22 +179,32 @@ def main():
             return 1
         text = sys.stdin.read()
 
-    found = split_findings(text)
-    findings = [f for f in found if is_complete(f)]
-    incomplete = len(found) - len(findings)
-    if incomplete:
-        print(
-            f"Warning: dropped {incomplete} incomplete finding(s) missing one of: "
-            + ", ".join(REQUIRED_KEYS),
-            file=sys.stderr,
-        )
-    if not findings:
+    data = as_json(text)
+    if data is None:
+        found = split_findings(text)
+        findings = [f for f in found if is_complete(f)]
+        incomplete = len(found) - len(findings)
+        if incomplete:
+            print(
+                f"Warning: dropped {incomplete} incomplete finding(s) missing one of: "
+                + ", ".join(REQUIRED_KEYS),
+                file=sys.stderr,
+            )
+        data = [{k: f[k] for k in REQUIRED_KEYS} for f in findings]
+
+    try:
+        doc, warnings = normalize_document(data)
+    except ValueError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return 1
+    for w in warnings:
+        print(f"Warning: {w}", file=sys.stderr)
+    if not doc["findings"]:
         print("Error: no complete Improvement findings could be parsed from input.", file=sys.stderr)
         return 1
 
-    ordered = [{k: f[k] for k in REQUIRED_KEYS} for f in findings]
-    print(json.dumps(ordered, indent=2))
-    print(f"Parsed {len(ordered)} finding(s).", file=sys.stderr)
+    print(json.dumps(doc, indent=2, ensure_ascii=False))
+    print(f"Parsed {len(doc['findings'])} finding(s).", file=sys.stderr)
     return 0
 
 

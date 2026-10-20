@@ -3,15 +3,18 @@
 **Rationale** The stated goal is to ship a reliable v1 skill; duplicated validation logic means a future change to the 300-file cap (project.md) has to be made twice, and the two copies can silently drift, which directly undermines "improving the user's output" that Hindsight itself is meant to promote.
 **Impact/Effort** High Impact / Low Effort
 **Suggested LLM Action Prompt** Refactor `scripts/parse_args.sh` into the single source of truth for input validation, and update `hindsight.md`'s Step 0 to explicitly delegate to it (or restate its exact rules by reference) instead of re-describing the validation rules inline.
+**Done When** `scripts/parse_args.sh` is the only place the 300-file cap and required-input rules are defined, and `hindsight.md` refers to it instead of restating them.
 
 **Area** Code Quality
 **Issue** `scripts/aggregate_context.sh` builds `files` by reading a comma-separated string with `IFS=',' read -ra`, which will silently mis-split any file path that itself contains a comma.
 **Rationale** Given the user goal of scanning up to 300 arbitrary project files, a single comma in a filename would corrupt the file list without any error message, producing an incomplete context block that the architect review would never flag as wrong.
 **Impact/Effort** Low Impact / Low Effort
 **Suggested LLM Action Prompt** Change `scripts/parse_args.sh` and `scripts/aggregate_context.sh` to accept newline-delimited file lists (or a JSON array) instead of comma-separated values, and add a test case for a filename containing a comma.
+**Done When** A test passing a filename that contains a comma reads that file intact through both `parse_args.sh` and `aggregate_context.sh`.
 
 **Area** Documentation Gap
 **Issue** `hindsight.md`'s "Current Scope" section says T4-T6 are "not yet wired up," but there is no note in `readme.md` or `project.md` describing the current overall completion percentage or which file a new contributor should read first to find the live state.
 **Rationale** The project's own goal is to accelerate "the leap from code to production-ready architecture" — a contributor picking this project back up needs a fast on-ramp, and right now that on-ramp is scattered across `handover.md`, `tasks.md`, and `hindsight.md`'s scope footer.
 **Impact/Effort** Low Impact / High Effort
 **Suggested LLM Action Prompt** Add a one-paragraph "Where to start" pointer at the top of `readme.md` that names `handover.md` as the authoritative live-state file and links to `tasks.md` for the build plan.
+**Done When** `readme.md` opens with a "Where to start" paragraph naming `handover.md` as the live-state file.
