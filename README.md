@@ -58,6 +58,16 @@ For the single most critical finding in each review, Hindsight also generates a 
 
 Hindsight also cross-references every Documentation Gaps finding against the actual code: it lists the specific public functions, classes, and interfaces missing a doc-comment (in whatever convention is idiomatic to that language) or a usage example in the primary docs, as a Cross-Reference Gap Report at the end of `inHindsight.md`.
 
+## Running the tests
+
+The helper scripts in `hindsight/scripts/` have a regression suite in `tests/` (Python standard library only, nothing to install). From the repo root:
+
+```bash
+python3 -m unittest discover -s tests -v
+```
+
+`tests/` sits outside `hindsight/` on purpose, so it isn't copied when you install the skill.
+
 ## Tasklog
 
 | # | Task | Status | Notes|
@@ -71,3 +81,4 @@ Hindsight also cross-references every Documentation Gaps finding against the act
 | 7 | Weighted Decision Matrix Generator. Score 3+ candidate solutions for the single most critical finding. | Done | /scripts/render_decision_matrix.py |
 | 8 | Cross-Reference Documentation Gap Detection. List public elements missing doc-comments/usage examples. | Done | SKILL.md Steps 3 & 5 (prompt-only) |
 | 9 | Goal Refinement Hypothesis Engine. Propose 3 concrete hypotheses when the stated goal is too bare. | Done | SKILL.md Step 1 item 4 (prompt-only) |
+| 10 | Script hardening. Fix parser/renderer/input edge cases, keep reads inside the project root, resolve script paths from the skill dir, add a regression suite. | Done | /scripts/*, tests/test_scripts.py |

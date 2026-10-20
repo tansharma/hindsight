@@ -23,6 +23,7 @@ Exit codes:
 
 import argparse
 import json
+import re
 import sys
 from collections import OrderedDict
 from datetime import date
@@ -56,6 +57,32 @@ def heading_text(issue):
     return f"{cut}…"
 
 
+# "High impact / low effort (quick win)", "high-impact, low-effort", and
+# "Impact: High / Effort: Low" all name a canonical bucket.
+IMPACT_FIRST = re.compile(r"\b(high|low)[\s-]*impact\b.*?\b(high|low)[\s-]*effort\b", re.I | re.S)
+LABEL_FIRST = re.compile(r"\bimpact\W*(high|low)\b.*?\beffort\W*(high|low)\b", re.I | re.S)
+
+
+def canonical_impact_effort(value):
+    for pattern in (IMPACT_FIRST, LABEL_FIRST):
+        m = pattern.search(value)
+        if m:
+            return f"{m.group(1).capitalize()} Impact / {m.group(2).capitalize()} Effort"
+    return value.strip()
+
+
+def code_fence(content):
+    """A backtick fence longer than any backtick run inside content, so a
+    prompt that contains its own ``` block can't close the fence early."""
+    longest = max((len(run) for run in re.findall(r"`+", content)), default=0)
+    return "`" * max(3, longest + 1)
+
+
+def prompt_block(prompt):
+    fence = code_fence(prompt)
+    return [f"{fence}text", prompt, fence]
+
+
 def normalize_area(area):
     lowered = area.lower()
     if "architect" in lowered:
@@ -73,7 +100,7 @@ def render(findings, root, goal):
     by_impact_effort = OrderedDict((label, []) for label in IMPACT_EFFORT_ORDER)
     area_counts = OrderedDict()
     for f in findings:
-        ie = f.get("Impact/Effort", "").strip()
+        ie = canonical_impact_effort(f.get("Impact/Effort", ""))
         by_impact_effort.setdefault(ie, []).append(f)
         area = normalize_area(f.get("Area", ""))
         area_counts[area] = area_counts.get(area, 0) + 1
@@ -130,9 +157,7 @@ def render(findings, root, goal):
                 lines.append("")
                 lines.append("### LLM Action Prompt")
                 lines.append("")
-                lines.append("```text")
-                lines.append(f.get("LLM_Prompt", ""))
-                lines.append("```")
+                lines.extend(prompt_block(f.get("LLM_Prompt", "")))
                 lines.append("")
 
     # Any Impact/Effort values outside the four canonical labels still get
@@ -155,9 +180,7 @@ def render(findings, root, goal):
             lines.append("")
             lines.append("### LLM Action Prompt")
             lines.append("")
-            lines.append("```text")
-            lines.append(f.get("LLM_Prompt", ""))
-            lines.append("```")
+            lines.extend(prompt_block(f.get("LLM_Prompt", "")))
             lines.append("")
 
     return "\n".join(lines).rstrip() + "\n"

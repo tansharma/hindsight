@@ -15,8 +15,9 @@
 #     --context-file <path/to/context.txt>
 #
 # Behavior:
-#   - Reads project context from <root>/project.md (warns and substitutes a
-#     placeholder if missing, rather than failing the whole run).
+#   - Reads project context from <root>/project.md (or Project.md /
+#     PROJECT.md; warns and substitutes a placeholder if none exists, rather
+#     than failing the whole run).
 #   - Reads the aggregated file/context block from --context-file if given,
 #     otherwise from stdin (intended to be piped straight from
 #     aggregate_context.sh).
@@ -39,18 +40,26 @@ usage() {
   exit 1
 }
 
+missing_value() {
+  echo "Error: $1 requires a value." >&2
+  usage
+}
+
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --root)
-      root="${2:-}"
+      [[ $# -ge 2 ]] || missing_value "$1"
+      root="$2"
       shift 2
       ;;
     --goal)
-      goal="${2:-}"
+      [[ $# -ge 2 ]] || missing_value "$1"
+      goal="$2"
       shift 2
       ;;
     --context-file)
-      context_file="${2:-}"
+      [[ $# -ge 2 ]] || missing_value "$1"
+      context_file="$2"
       shift 2
       ;;
     -h|--help)
@@ -78,7 +87,15 @@ if [[ ! -d "$root" ]]; then
   exit 1
 fi
 
+# The repo ships `Project.md`; accept the common casings so this also works
+# on case-sensitive filesystems (Linux), not only on macOS.
 project_md="$root/project.md"
+for name in project.md Project.md PROJECT.md; do
+  if [[ -f "$root/$name" ]]; then
+    project_md="$root/$name"
+    break
+  fi
+done
 if [[ -f "$project_md" ]]; then
   project_context="$(cat "$project_md")"
 else

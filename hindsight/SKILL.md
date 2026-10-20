@@ -219,10 +219,15 @@ engineer wants surfaced, not decided for them by the review.
    - `argument` — one or two sentences on why this candidate scores as it
      does, and its main risk or trade-off.
 3. **Render the comparison** with `scripts/render_decision_matrix.py`,
-   passing the candidates as a JSON array:
+   passing the candidates as a JSON array on stdin through a quoted
+   heredoc (not `echo '...'`, which breaks as soon as an argument contains
+   an apostrophe). `<skill-dir>` is the directory this SKILL.md lives in —
+   see "Deterministic Helper Scripts" below:
 
    ```bash
-   echo '<JSON array of candidates>' | scripts/render_decision_matrix.py
+   python3 "<skill-dir>/scripts/render_decision_matrix.py" <<'CANDIDATES'
+   <JSON array of candidates>
+   CANDIDATES
    ```
 
    The script drops any candidate missing a required field or with
@@ -362,34 +367,54 @@ unless the user asks.
 ## Deterministic Helper Scripts
 
 `scripts/` contains a deterministic counterpart for each pipeline stage, for
-testing the stages without a model and as the basis for automated tests.
-They chain:
+testing the stages without a model and as the basis for automated tests
+(`tests/` at the repo root).
+
+**Resolve script paths from the skill directory, not the working
+directory.** During a review the working directory is the user's project,
+so a bare `scripts/...` path will not exist. `<skill-dir>` below means the
+directory containing this SKILL.md — Claude Code states it as the skill's
+base directory when the skill loads; for Codex/Gemini it is wherever the
+`hindsight/` folder was installed (e.g. `~/.codex/skills/hindsight`).
+Invoke scripts through their interpreter (`bash`/`python3`) so they work
+even if a copy lost its executable bit. They chain:
 
 ```bash
-scripts/parse_args.sh --root <path> --goal "<use case>" [--files "a.py,b.py,..."]
-scripts/aggregate_context.sh --root <path> --files "a.py,b.py,..." \
-  | scripts/build_prompt.sh --root <path> --goal "<use case>" \
+S="<skill-dir>/scripts"
+bash "$S/parse_args.sh" --root <path> --goal "<use case>" [--files "a.py,b.py,..."]
+bash "$S/aggregate_context.sh" --root <path> --files "a.py,b.py,..." \
+  | bash "$S/build_prompt.sh" --root <path> --goal "<use case>" \
   # execute the printed P-Prompt against an LLM, then:
-  | scripts/parse_findings.py \
-  | scripts/render_output.py --root <path> --goal "<use case>"
+  | python3 "$S/parse_findings.py" \
+  | python3 "$S/render_output.py" --root <path> --goal "<use case>"
 ```
 
-- `parse_args.sh` — validates the three inputs (exit 1 on missing
-  root/goal or >300 files) and prints the Step 1 confirmation JSON.
-- `aggregate_context.sh` — prints a depth-3 directory tree plus
-  `--- FILE: <path> ---` demarcated contents; skips missing files with a
-  stderr warning and logs read/missing/byte counts.
+- `parse_args.sh` — validates the three inputs (exit 1 on a missing or
+  non-directory root, missing goal, a flag with no value, or >300 files)
+  and prints the Step 1 confirmation JSON, correctly escaped.
+- `aggregate_context.sh` — prints a depth-3 directory tree (pruning `.git`
+  and dependency/build dirs) plus `--- FILE: <path> ---` demarcated
+  contents; skips missing files, files resolving outside `--root`, and
+  binary files with a stderr warning; truncates files over
+  `HINDSIGHT_MAX_FILE_BYTES` (default 256 KiB) with a visible marker; logs
+  read/missing/skipped/truncated/byte counts.
 - `build_prompt.sh` — assembles the architect P-Prompt from root, goal, and
   the context block (stdin or `--context-file`); pure templating, no LLM
   call.
 - `parse_findings.py` — parses an executed review's prose into a JSON array
-  of `{Area, Issue, Rationale, Impact/Effort, LLM_Prompt}` objects; splits
-  on `**Area**` labels, tolerates minor label punctuation variance, drops
-  incomplete findings, exits 1 if none parse. `scripts/mock_review.txt` is
-  a hand-written 3-finding review for exercising it without an LLM.
+  of `{Area, Issue, Rationale, Impact/Effort, LLM_Prompt}` objects; starts
+  a new finding at each `**Area**` label that begins a line, tolerates
+  label punctuation inside or after the bold (`**Area:**`, `**Area**:`),
+  ignores labels inside fenced code and repeated mid-line mentions, warns
+  about and drops incomplete findings, exits 1 if none parse.
+  `scripts/mock_review.txt` is a hand-written 3-finding review for
+  exercising it without an LLM.
 - `render_output.py` — groups the JSON findings by Impact/Effort then Area
-  and writes `inHindsight.md` (`--out` to override); off-spec Impact/Effort
-  labels render in their own section rather than being dropped.
+  and writes `inHindsight.md` (`--out` to override); loosely worded
+  Impact/Effort values ("high impact, low effort (quick win)") are mapped
+  to the four canonical buckets, truly off-spec labels render in their own
+  section rather than being dropped, and each prompt's code fence is sized
+  so a prompt containing its own ``` block can't break out of it.
 - `render_decision_matrix.py` — Step 4's renderer. Takes a JSON array of
   `{solution, impact, effort, argument}` candidates (stdin or a file arg)
   and prints a four-column Markdown table; drops any candidate missing a
@@ -399,8 +424,9 @@ scripts/aggregate_context.sh --root <path> --files "a.py,b.py,..." \
   contract, so it can be changed on its own.
 
 ```bash
-echo '[{"solution": "...", "impact": 1-5, "effort": 1-5, "argument": "..."}, ...]' \
-  | scripts/render_decision_matrix.py
+python3 "$S/render_decision_matrix.py" <<'CANDIDATES'
+[{"solution": "...", "impact": 1-5, "effort": 1-5, "argument": "..."}, ...]
+CANDIDATES
 ```
 
 Format coupling to respect: `parse_findings.py`'s label regex assumes Step

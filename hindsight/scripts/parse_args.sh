@@ -22,18 +22,39 @@ usage() {
   exit 1
 }
 
+missing_value() {
+  echo "Error: $1 requires a value." >&2
+  usage
+}
+
+# Escape a string for use inside a JSON string literal: drop control
+# characters JSON can't carry raw, then escape \, ", newline, CR, and tab.
+json_escape() {
+  local s
+  s="$(printf '%s' "$1" | LC_ALL=C tr -d '\001-\010\013\014\016-\037')"
+  s="${s//\\/\\\\}"
+  s="${s//\"/\\\"}"
+  s="${s//$'\n'/\\n}"
+  s="${s//$'\r'/\\r}"
+  s="${s//$'\t'/\\t}"
+  printf '%s' "$s"
+}
+
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --root)
-      root="${2:-}"
+      [[ $# -ge 2 ]] || missing_value "$1"
+      root="$2"
       shift 2
       ;;
     --goal)
-      goal="${2:-}"
+      [[ $# -ge 2 ]] || missing_value "$1"
+      goal="$2"
       shift 2
       ;;
     --files)
-      files_csv="${2:-}"
+      [[ $# -ge 2 ]] || missing_value "$1"
+      files_csv="$2"
       shift 2
       ;;
     -h|--help)
@@ -48,6 +69,11 @@ done
 
 if [[ -z "$root" ]]; then
   echo "Error: --root <project_root> is required." >&2
+  exit 1
+fi
+
+if [[ ! -d "$root" ]]; then
+  echo "Error: --root '$root' is not a directory." >&2
   exit 1
 fi
 
@@ -75,15 +101,14 @@ fi
 # Build the JSON array of files.
 files_json="["
 for i in "${!files[@]}"; do
-  esc="${files[$i]//\"/\\\"}"
-  files_json+="\"$esc\""
+  files_json+="\"$(json_escape "${files[$i]}")\""
   if (( i < file_count - 1 )); then
     files_json+=","
   fi
 done
 files_json+="]"
 
-esc_root="${root//\"/\\\"}"
-esc_goal="${goal//\"/\\\"}"
+esc_root="$(json_escape "$root")"
+esc_goal="$(json_escape "$goal")"
 
 printf '{ "root": "%s", "files": %s, "goal": "%s" }\n' "$esc_root" "$files_json" "$esc_goal"

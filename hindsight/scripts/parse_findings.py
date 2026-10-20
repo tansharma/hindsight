@@ -13,9 +13,16 @@ instruction lists findings one at a time using five labeled fields:
     **Rationale** ...
     **Impact/Effort** ...
     **Suggested LLM Action Prompt** ...
-Label punctuation (":", "-", em/en dash, or nothing) and minor label
-wording (e.g. "LLM Action Prompt" vs "Suggested LLM Action Prompt") are
-tolerated; a new finding starts at each "Area" label.
+Label punctuation (":", "-", em/en dash, or nothing — inside or after the
+bold, so "**Area:**" and "**Area**:" both work) and minor label wording
+(e.g. "LLM Action Prompt" vs "Suggested LLM Action Prompt") are tolerated.
+
+A new finding starts at each "Area" label that begins a line (optionally
+after a list marker, number, heading hashes, or ">"). Labels that appear
+mid-line are accepted only for a field the current finding hasn't seen yet,
+and labels inside fenced code blocks are ignored — so a field value (most
+often the LLM prompt) that *mentions* "**Area**" or "**Issue**" is not
+split into a bogus new finding or truncated.
 
 Prints a JSON array of Improvement objects to stdout, each with exactly the
 keys: Area, Issue, Rationale, Impact/Effort, LLM_Prompt.
@@ -46,27 +53,75 @@ REQUIRED_KEYS = ["Area", "Issue", "Rationale", "Impact/Effort", "LLM_Prompt"]
 LABEL_PATTERN = re.compile(
     r"\*\*\s*("
     + "|".join(re.escape(k) for k in sorted(FIELD_ALIASES, key=len, reverse=True))
-    + r")\s*\*\*\s*[:\-–—]?\s*",
+    + r")\s*[:\-–—]?\s*\*\*\s*[:\-–—]?\s*",
     re.IGNORECASE,
 )
 
+# What may precede a label for it to count as starting a line.
+LINE_START_PREFIX = re.compile(r"[ \t]*(?:(?:[-*+>]|\d+[.)]|#{1,6})[ \t]+)?")
 
-def parse_findings(text):
-    matches = list(LABEL_PATTERN.finditer(text))
-    if not matches:
-        return []
+FENCE_LINE = re.compile(r"[ \t]*(`{3,}|~{3,})")
 
-    tagged = []
-    for i, m in enumerate(matches):
+
+def fenced_ranges(text):
+    """Return (start, end) character offsets of fenced code blocks."""
+    ranges = []
+    open_start = None
+    open_fence = None
+    offset = 0
+    for line in text.splitlines(keepends=True):
+        m = FENCE_LINE.match(line)
+        if m:
+            fence = m.group(1)
+            if open_fence is None:
+                open_start, open_fence = offset, fence
+            elif fence[0] == open_fence[0] and len(fence) >= len(open_fence):
+                ranges.append((open_start, offset + len(line)))
+                open_start = open_fence = None
+        offset += len(line)
+    if open_fence is not None:
+        ranges.append((open_start, len(text)))
+    return ranges
+
+
+def at_line_start(text, pos):
+    line_begin = text.rfind("\n", 0, pos) + 1
+    return LINE_START_PREFIX.fullmatch(text[line_begin:pos]) is not None
+
+
+def value_end(text, m):
+    """Where the previous field's value stops: the start of this label's line
+    if the label begins one (so a "- " marker isn't left on the value)."""
+    if at_line_start(text, m.start()):
+        return text.rfind("\n", 0, m.start()) + 1
+    return m.start()
+
+
+def split_findings(text):
+    """Return every finding found, complete or not."""
+    fences = fenced_ranges(text)
+
+    accepted = []
+    seen = set()
+    for m in LABEL_PATTERN.finditer(text):
+        if any(start <= m.start() < end for start, end in fences):
+            continue
         key = FIELD_ALIASES[m.group(1).lower()]
-        start = m.end()
-        end = matches[i + 1].start() if i + 1 < len(matches) else len(text)
-        value = re.sub(r"\n{2,}", "\n\n", text[start:end]).strip()
-        tagged.append((key, value))
+        if key == "Area" and seen and at_line_start(text, m.start()):
+            seen = set()
+        elif key in seen:
+            continue
+        seen.add(key)
+        accepted.append((key, m))
+
+    if not accepted:
+        return []
 
     findings = []
     current = {}
-    for key, value in tagged:
+    for i, (key, m) in enumerate(accepted):
+        end = value_end(text, accepted[i + 1][1]) if i + 1 < len(accepted) else len(text)
+        value = re.sub(r"\n{2,}", "\n\n", text[m.end():end]).strip()
         if key == "Area" and current:
             findings.append(current)
             current = {}
@@ -74,7 +129,15 @@ def parse_findings(text):
     if current:
         findings.append(current)
 
-    return [f for f in findings if all(f.get(k) for k in REQUIRED_KEYS)]
+    return findings
+
+
+def is_complete(finding):
+    return all(finding.get(k) for k in REQUIRED_KEYS)
+
+
+def parse_findings(text):
+    return [f for f in split_findings(text) if is_complete(f)]
 
 
 def main():
@@ -87,7 +150,15 @@ def main():
             return 1
         text = sys.stdin.read()
 
-    findings = parse_findings(text)
+    found = split_findings(text)
+    findings = [f for f in found if is_complete(f)]
+    incomplete = len(found) - len(findings)
+    if incomplete:
+        print(
+            f"Warning: dropped {incomplete} incomplete finding(s) missing one of: "
+            + ", ".join(REQUIRED_KEYS),
+            file=sys.stderr,
+        )
     if not findings:
         print("Error: no complete Improvement findings could be parsed from input.", file=sys.stderr)
         return 1
