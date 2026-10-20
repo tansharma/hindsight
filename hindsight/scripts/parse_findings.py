@@ -7,8 +7,8 @@ Usage:
     scripts/parse_findings.py path/to/review.txt
 
 The P-Prompt asks the model for JSON. If the input is JSON — a findings
-document or a bare array, optionally wrapped in one ```json fence — it is
-validated and normalized. Otherwise it is parsed as the older prose format,
+document, a bare array, or a needs-input document, optionally wrapped in
+one ```json fence — it is validated and normalized. Otherwise it is parsed as the older prose format,
 which lists findings one at a time using six labeled fields:
     **Area** ...
     **Issue** ...
@@ -41,7 +41,7 @@ import re
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from findings_schema import normalize_document  # noqa: E402
+from findings_schema import NEEDS_INPUT, load_document  # noqa: E402
 
 FIELD_ALIASES = {
     "done when": "Done_When",
@@ -193,12 +193,16 @@ def main():
         data = [{k: f[k] for k in REQUIRED_KEYS} for f in findings]
 
     try:
-        doc, warnings = normalize_document(data)
+        doc, warnings = load_document(data)
     except ValueError as e:
         print(f"Error: {e}", file=sys.stderr)
         return 1
     for w in warnings:
         print(f"Warning: {w}", file=sys.stderr)
+    if doc["status"] == NEEDS_INPUT:
+        print(json.dumps(doc, indent=2, ensure_ascii=False))
+        print(f"Parsed a needs-input document (missing: {', '.join(doc['missing'])}).", file=sys.stderr)
+        return 0
     if not doc["findings"]:
         print("Error: no complete Improvement findings could be parsed from input.", file=sys.stderr)
         return 1

@@ -4,6 +4,10 @@
 #
 # Usage:
 #   scripts/parse_args.sh --root <path> --goal "<use case>" [--files "a.py,b.py,..."]
+#   scripts/parse_args.sh --root <path> --goal "<use case>" --files-from <list.txt | ->
+#
+# --files-from reads one path per line ("-" for stdin), e.g. the output of
+# scripts/list_files.sh; use it for paths that contain commas.
 #
 # Exit codes:
 #   0  inputs valid, confirmation JSON printed to stdout
@@ -11,14 +15,17 @@
 
 set -euo pipefail
 
+source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
+
 MAX_FILES=300
 
 root=""
 goal=""
 files_csv=""
+files_from=""
 
 usage() {
-  echo "Usage: $0 --root <path> --goal \"<use case>\" [--files \"a.py,b.py,...\"]" >&2
+  echo "Usage: $0 --root <path> --goal \"<use case>\" [--files \"a.py,b.py,...\" | --files-from <file|->]" >&2
   exit 1
 }
 
@@ -57,6 +64,11 @@ while [[ $# -gt 0 ]]; do
       files_csv="$2"
       shift 2
       ;;
+    --files-from)
+      [[ $# -ge 2 ]] || missing_value "$1"
+      files_from="$2"
+      shift 2
+      ;;
     -h|--help)
       usage
       ;;
@@ -82,15 +94,12 @@ if [[ -z "$goal" ]]; then
   exit 1
 fi
 
-# Split the CSV file list into an array, dropping empty entries.
-files=()
-if [[ -n "$files_csv" ]]; then
-  IFS=',' read -ra raw_files <<< "$files_csv"
-  for f in "${raw_files[@]}"; do
-    trimmed="$(echo "$f" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
-    [[ -n "$trimmed" ]] && files+=("$trimmed")
-  done
+if [[ -n "$files_from" && "$files_from" != "-" && ! -r "$files_from" ]]; then
+  echo "Error: --files-from '$files_from' not found or not readable." >&2
+  exit 1
 fi
+
+read_file_list "$files_csv" "$files_from"
 
 file_count=${#files[@]}
 if (( file_count > MAX_FILES )); then

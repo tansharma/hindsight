@@ -9,16 +9,23 @@ Usage:
     # or
     scripts/render_output.py [--root <path>] [--goal "<use case>"] findings.json
 
-Input is a findings document or a bare array of findings. --root and --goal
-override the document's own "root"/"goal"; one of the two must supply each.
+Input is a findings document, a bare array of findings, or a needs-input
+document ("status": "needs_input" — rendered as a short status page with the
+question and any goal hypotheses instead of a review). --root and --goal
+override the document's own "root"/"goal"; one of the two must supply each
+(a needs-input document needs only a root).
 
 Writes:
     <root>/inHindsight.md     (or --out)        the human-readable review
     <root>/inHindsight.json   (or --json-out)   the normalized document, with ids
 If either file already exists, both existing files are first moved to
 <dir of --out>/hindsight-history/<timestamp>-<name>, so no run is lost. New
-finding ids are numbered after the previous run's highest id and never reuse
-a number; findings carried forward should keep their old id in the input.
+finding ids are numbered after the highest id in the current output and in
+every archived review, and never reuse a number; findings carried forward
+should keep their old id in the input.
+
+Each of the three areas should be addressed by at least one finding or a
+"no_findings" entry; an unaddressed area is reported as a warning.
 
 This step is rendering, not analysis or re-judging — every usable finding in
 the input appears in the output exactly once, grouped and formatted, with no
@@ -42,9 +49,10 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from findings_schema import (  # noqa: E402
     AREA_ORDER,
     IMPACT_EFFORT_ORDER,
+    NEEDS_INPUT,
     REVIEW_STATUSES,
     assign_ids,
-    normalize_document,
+    load_document,
     rank_label,
 )
 import render_decision_matrix  # noqa: E402
@@ -169,12 +177,62 @@ def render_gap_report(entries, warnings):
     ] + rows + [""]
 
 
+def render_no_findings(entries):
+    if not entries:
+        return []
+    lines = ["## ✅ No Findings", ""]
+    for e in sorted(entries, key=lambda e: AREA_ORDER.index(e["area"]) if e["area"] in AREA_ORDER else len(AREA_ORDER)):
+        lines += [f"### {e['area']}", "", e["reason"], ""]
+    return lines
+
+
+def check_area_coverage(doc, warnings):
+    """Every area must be addressed by a finding or a no_findings entry. A
+    no_findings entry for an area that does have findings is dropped."""
+    with_findings = {f["area"] for f in doc["findings"]}
+    kept = []
+    for e in doc["no_findings"]:
+        if e["area"] in with_findings:
+            warnings.append(f"{e['area']} has findings, so its no_findings entry was ignored")
+        else:
+            kept.append(e)
+    doc["no_findings"] = kept
+    addressed = with_findings | {e["area"] for e in kept}
+    for area in AREA_ORDER:
+        if area not in addressed:
+            warnings.append(f"{area} is not addressed: add a finding or a no_findings entry with the reason")
+
+
+def project_name(doc):
+    root = doc["root"]
+    return doc.get("project") or os.path.basename(os.path.abspath(root)) or root
+
+
+def render_needs_input(doc):
+    lines = [f"# In Hindsight — {project_name(doc)}", ""]
+    lines.append(f"- **Project root:** `{doc['root']}`")
+    if doc.get("goal"):
+        lines.append(f"- **User goal:** {doc['goal']}")
+    lines.append(f"- **Status:** needs input (missing: {', '.join(doc['missing'])})")
+    lines.append(f"- **Generated:** {doc['generated']}")
+    lines.append("")
+    lines += ["## Input Needed", "", doc["question"], ""]
+    if doc["hypotheses"]:
+        lines += ["## Goal Hypotheses", ""]
+        for i, h in enumerate(doc["hypotheses"], 1):
+            lines += [f"### {i}. {h['label']}", "", f"**Goal:** {h['goal']}", ""]
+            if h["scope"]:
+                lines += ["**Review scope:**", ""] + [f"- `{s}`" for s in h["scope"]] + [""]
+    lines.append("No review was performed. Re-run Hindsight with the missing input to produce one.")
+    return "\n".join(lines).rstrip() + "\n"
+
+
 def render(doc, warnings=None):
     warnings = [] if warnings is None else warnings
     findings = doc["findings"]
     root, goal = doc["root"], doc["goal"]
     total = len(findings)
-    project = doc.get("project") or os.path.basename(os.path.abspath(root)) or root
+    project = project_name(doc)
 
     area_counts = OrderedDict()
     for f in findings:
@@ -239,18 +297,30 @@ def render(doc, warnings=None):
         for f in group:
             lines.extend(render_finding(f, warnings))
 
+    lines.extend(render_no_findings(doc.get("no_findings")))
     lines.extend(render_gap_report(doc.get("gap_report"), warnings))
 
     return "\n".join(lines).rstrip() + "\n"
 
 
-def previous_ids(json_path):
+def ids_in(json_path):
     try:
         with open(json_path, "r", encoding="utf-8") as fh:
             prior = json.load(fh)
         return [f.get("id") for f in prior.get("findings", []) if isinstance(f, dict)]
     except (OSError, ValueError, AttributeError):
         return []
+
+
+def previous_ids(json_path, history_dir):
+    """Ids used by the current output and every archived review, so a
+    needs-input run in between can't reset the numbering."""
+    ids = ids_in(json_path)
+    if os.path.isdir(history_dir):
+        for name in os.listdir(history_dir):
+            if name.endswith(".json"):
+                ids += ids_in(os.path.join(history_dir, name))
+    return ids
 
 
 def archive_previous(paths, history_dir):
@@ -301,17 +371,33 @@ def main():
         return 1
 
     try:
-        doc, warnings = normalize_document(data)
+        doc, warnings = load_document(data)
     except ValueError as e:
         print(f"Error: {e}", file=sys.stderr)
         return 1
 
+    # A needs-input document may lack a goal (that can be what's missing);
+    # a review always needs both.
+    required = ("root",) if doc["status"] == NEEDS_INPUT else ("root", "goal")
     for key in ("root", "goal"):
         value = getattr(args, key) or doc.get(key)
-        if not isinstance(value, str) or not value.strip():
+        if isinstance(value, str) and value.strip():
+            doc[key] = value
+        elif key in required:
             print(f"Error: no {key} given (pass --{key} or set \"{key}\" in the document).", file=sys.stderr)
             return 1
-        doc[key] = value
+
+    out_path = args.out or os.path.join(doc["root"], "inHindsight.md")
+    json_path = args.json_out or os.path.splitext(out_path)[0] + ".json"
+    history_dir = os.path.join(os.path.dirname(os.path.abspath(out_path)), HISTORY_DIR)
+
+    if doc["status"] == NEEDS_INPUT:
+        doc["generated"] = date.today().isoformat()
+        rendered = render_needs_input(doc)
+        archived = write_outputs(doc, rendered, out_path, json_path, history_dir)
+        report(warnings, rendered, archived)
+        print(f"Wrote needs-input status (missing: {', '.join(doc['missing'])}) to {out_path} and {json_path}.", file=sys.stderr)
+        return 0
 
     if not doc["findings"]:
         for w in warnings:
@@ -328,28 +414,33 @@ def main():
         )
         return 1
 
-    out_path = args.out or os.path.join(doc["root"], "inHindsight.md")
-    json_path = args.json_out or os.path.splitext(out_path)[0] + ".json"
-
-    warnings += assign_ids(doc["findings"], previous_ids(json_path))
+    check_area_coverage(doc, warnings)
+    warnings += assign_ids(doc["findings"], previous_ids(json_path, history_dir))
     doc["generated"] = date.today().isoformat()
     rendered = render(doc, warnings)
 
-    archived = archive_previous([out_path, json_path], os.path.join(os.path.dirname(os.path.abspath(out_path)), HISTORY_DIR))
+    archived = write_outputs(doc, rendered, out_path, json_path, history_dir)
+    report(warnings, rendered, archived)
+    print(f"Wrote {len(doc['findings'])} finding(s) to {out_path} and {json_path}.", file=sys.stderr)
+    return 0
 
+
+def write_outputs(doc, rendered, out_path, json_path, history_dir):
+    archived = archive_previous([out_path, json_path], history_dir)
     with open(out_path, "w", encoding="utf-8") as fh:
         fh.write(rendered)
     with open(json_path, "w", encoding="utf-8") as fh:
         json.dump(doc, fh, indent=2, ensure_ascii=False)
         fh.write("\n")
+    return archived
 
+
+def report(warnings, rendered, archived):
     for w in warnings:
         print(f"Warning: {w}", file=sys.stderr)
     print(rendered)
     for path in archived:
         print(f"Archived previous output to {path}.", file=sys.stderr)
-    print(f"Wrote {len(doc['findings'])} finding(s) to {out_path} and {json_path}.", file=sys.stderr)
-    return 0
 
 
 if __name__ == "__main__":

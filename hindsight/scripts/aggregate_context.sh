@@ -6,17 +6,23 @@
 #
 # Usage:
 #   scripts/aggregate_context.sh --root <path> --files "a.py,b.py,..."
+#   scripts/aggregate_context.sh --root <path> --files-from <list.txt | ->
+#
+# --files-from reads one path per line ("-" for stdin), e.g. the output of
+# scripts/list_files.sh; use it for paths that contain commas.
 #
 # Behavior:
 #   - Files are resolved relative to --root (absolute paths are accepted only
 #     if they resolve inside --root; symlinks are followed before checking).
-#   - Missing files, files outside --root, and binary files (NUL byte in the
-#     first 8 KiB) are skipped with a warning on stderr; they do not abort
-#     the run, since one unreadable file shouldn't block the whole review.
+#   - Missing files, files outside --root, files whose names look like
+#     secrets (.env, *.pem, id_rsa, ... — see common.sh), and binary files
+#     (NUL byte in the first 8 KiB) are skipped with a warning on stderr;
+#     they do not abort the run, since one unreadable file shouldn't block
+#     the whole review.
 #   - Files larger than HINDSIGHT_MAX_FILE_BYTES (default 262144) are
 #     truncated to that size, with a visible marker in the output.
-#   - The directory summary prunes .git and common dependency/build dirs
-#     (node_modules, vendor, dist, build, target, .venv, venv, __pycache__).
+#   - The directory summary prunes common.sh's PRUNE_DIRS (.git and common
+#     dependency/build dirs).
 #   - Logs a summary line to stderr: files read / missing / skipped /
 #     truncated / total bytes.
 #   - Prints the directory structure summary + concatenated file contents to
@@ -24,18 +30,20 @@
 #
 # Exit codes:
 #   0  ran to completion (even if some files were missing)
-#   1  a required input is missing (--root or --files)
+#   1  a required input is missing (--root, or --files / --files-from)
 
 set -euo pipefail
 
+source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
+
 MAX_FILE_BYTES="${HINDSIGHT_MAX_FILE_BYTES:-262144}"
-BINARY_SNIFF_BYTES=8192
 
 root=""
 files_csv=""
+files_from=""
 
 usage() {
-  echo "Usage: $0 --root <path> --files \"a.py,b.py,...\"" >&2
+  echo "Usage: $0 --root <path> (--files \"a.py,b.py,...\" | --files-from <file|->)" >&2
   exit 1
 }
 
@@ -59,13 +67,6 @@ resolve_file() {
   printf '%s/%s\n' "$(cd "$(dirname "$p")" && pwd -P)" "$(basename "$p")"
 }
 
-is_binary() {
-  local sniffed stripped
-  sniffed=$(head -c "$BINARY_SNIFF_BYTES" "$1" | wc -c | tr -d ' ')
-  stripped=$(head -c "$BINARY_SNIFF_BYTES" "$1" | LC_ALL=C tr -d '\000' | wc -c | tr -d ' ')
-  [[ "$sniffed" != "$stripped" ]]
-}
-
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --root)
@@ -76,6 +77,11 @@ while [[ $# -gt 0 ]]; do
     --files)
       [[ $# -ge 2 ]] || missing_value "$1"
       files_csv="$2"
+      shift 2
+      ;;
+    --files-from)
+      [[ $# -ge 2 ]] || missing_value "$1"
+      files_from="$2"
       shift 2
       ;;
     -h|--help)
@@ -93,8 +99,13 @@ if [[ -z "$root" ]]; then
   exit 1
 fi
 
-if [[ -z "$files_csv" ]]; then
-  echo "Error: --files \"a.py,b.py,...\" is required." >&2
+if [[ -z "$files_csv" && -z "$files_from" ]]; then
+  echo "Error: --files \"a.py,b.py,...\" or --files-from <file|-> is required." >&2
+  exit 1
+fi
+
+if [[ -n "$files_from" && "$files_from" != "-" && ! -r "$files_from" ]]; then
+  echo "Error: --files-from '$files_from' not found or not readable." >&2
   exit 1
 fi
 
@@ -110,18 +121,15 @@ fi
 
 root_abs="$(cd "$root" && pwd -P)"
 
-IFS=',' read -ra raw_files <<< "$files_csv"
-files=()
-for f in "${raw_files[@]}"; do
-  trimmed="$(echo "$f" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
-  [[ -n "$trimmed" ]] && files+=("$trimmed")
-done
+read_file_list "$files_csv" "$files_from"
 
 # --- Directory structure summary -------------------------------------------
+prune=()
+for d in "${PRUNE_DIRS[@]}"; do
+  prune+=(-o -name "$d")
+done
 echo "--- DIRECTORY STRUCTURE: $root ---"
-( cd "$root" && find . -maxdepth 3 \
-    -type d \( -name .git -o -name node_modules -o -name vendor -o -name dist -o -name build \
-       -o -name target -o -name .venv -o -name venv -o -name __pycache__ \) -prune \
+( cd "$root" && find . -maxdepth 3 -type d \( "${prune[@]:1}" \) -prune \
     -o -print | sed -e 's|^\./||' -e '/^\.$/d' | sort )
 echo
 
@@ -129,11 +137,12 @@ echo
 read_count=0
 missing_count=0
 outside_count=0
+secret_count=0
 binary_count=0
 truncated_count=0
 total_bytes=0
 
-for f in "${files[@]}"; do
+for f in ${files[@]+"${files[@]}"}; do
   if [[ "$f" = /* ]]; then
     path="$f"
   else
@@ -155,6 +164,12 @@ for f in "${files[@]}"; do
       continue
       ;;
   esac
+
+  if is_secret_path "$f" || is_secret_path "$real"; then
+    echo "Warning: possible secret, not read: $f" >&2
+    secret_count=$((secret_count + 1))
+    continue
+  fi
 
   if is_binary "$real"; then
     echo "Warning: binary file, skipping: $f" >&2
@@ -179,4 +194,4 @@ for f in "${files[@]}"; do
   total_bytes=$((total_bytes + bytes))
 done
 
-echo "Read $read_count file(s), $missing_count missing, $((outside_count + binary_count)) skipped ($outside_count outside root, $binary_count binary), $truncated_count truncated, $total_bytes total bytes." >&2
+echo "Read $read_count file(s), $missing_count missing, $((outside_count + secret_count + binary_count)) skipped ($outside_count outside root, $secret_count possible secret, $binary_count binary), $truncated_count truncated, $total_bytes total bytes." >&2

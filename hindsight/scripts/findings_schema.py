@@ -24,10 +24,29 @@ A findings document is a JSON object:
                                       # optional; at most one finding per review
         }
       ],
+      "no_findings": [ {"area", "reason"}, ... ],
+                                      # optional; an area with nothing worth
+                                      # reporting, and why it is clean
       "gap_report": [ {"element", "type", "location"}, ... ],  # optional
       "since_last_review": [ {"id", "title", "status", "evidence"}, ... ]
                                       # optional; status is resolved | partial |
                                       # unresolved | obsolete
+    }
+
+Normalized review documents carry "status": "complete".
+
+When a run cannot start the review — typically a non-interactive run with
+nobody to ask — it records a needs-input document instead:
+
+    {
+      "status": "needs_input",
+      "root": "<path>", "goal": "<the bare goal, if any>",
+      "missing": ["goal" | "goal_specificity" | "file_list", ...],
+      "question": "<what the caller must supply>",   # optional; defaulted
+      "hypotheses": [ {"label", "goal", "scope": ["path", ...]}, ... ]
+                                      # three or more when goal_specificity
+                                      # is missing; candidates for the caller
+                                      # to choose from, never a selection
     }
 
 A bare array of findings is accepted as a document with only "findings".
@@ -47,6 +66,24 @@ AREA_ORDER = ["Architectural Patterns", "Code Quality", "Documentation Gaps"]
 IMPACT_EFFORT_ORDER = [("High", "Low"), ("High", "High"), ("Low", "Low"), ("Low", "High")]
 
 REVIEW_STATUSES = ["resolved", "partial", "unresolved", "obsolete"]
+
+NEEDS_INPUT = "needs_input"
+
+# What a needs-input document can report as missing, with the default
+# question put to the caller for each.
+NEEDS_INPUT_QUESTIONS = {
+    "goal": "What is the primary goal or use case Hindsight should evaluate this project against?",
+    "goal_specificity": (
+        "The stated goal is too broad to anchor a review. Pick one of the hypotheses "
+        "below, blend them, or state a more specific goal."
+    ),
+    "file_list": (
+        "The file list exceeds the 300-file guideline. Narrow the scope (a subdirectory "
+        "or an explicit list), or explicitly accept the larger list."
+    ),
+}
+
+MIN_HYPOTHESES = 3
 
 LEGACY_KEYS = {
     "Area": "area",
@@ -164,8 +201,9 @@ def normalize_document(data):
     if not isinstance(data, dict) or not isinstance(data.get("findings"), list):
         raise ValueError('expected a findings document {"findings": [...]} or an array of findings')
 
-    doc = {k: v for k, v in data.items() if k != "findings"}
+    doc = {k: v for k, v in data.items() if k not in ("findings", "no_findings")}
     doc["schema_version"] = SCHEMA_VERSION
+    doc["status"] = "complete"
     doc["findings"] = []
     warnings = []
     for i, raw in enumerate(data["findings"], 1):
@@ -174,7 +212,69 @@ def normalize_document(data):
             warnings.append(f"dropped finding {i}: {problem}")
         else:
             doc["findings"].append(finding)
+
+    entries = data.get("no_findings") or []
+    if not isinstance(entries, list):
+        warnings.append("no_findings is not an array; ignored")
+        entries = []
+    doc["no_findings"] = []
+    for i, e in enumerate(entries, 1):
+        if not isinstance(e, dict) or not text_field(e, "area") or not text_field(e, "reason"):
+            warnings.append(f"dropped no_findings entry {i}: needs area and reason")
+            continue
+        doc["no_findings"].append({"area": normalize_area(text_field(e, "area")), "reason": text_field(e, "reason")})
     return doc, warnings
+
+
+def normalize_needs_input(data):
+    """Normalize a needs-input document. Returns (doc, warnings); raises
+    ValueError if it doesn't say what is missing, or if a too-bare goal
+    comes without at least MIN_HYPOTHESES hypotheses."""
+    missing = data.get("missing")
+    if isinstance(missing, str):
+        missing = [missing]
+    if not isinstance(missing, list) or not missing:
+        raise ValueError('a needs_input document must list what is "missing"')
+    unknown = [m for m in missing if m not in NEEDS_INPUT_QUESTIONS]
+    if unknown:
+        raise ValueError(
+            f"unknown missing input(s) {unknown}; expected any of {list(NEEDS_INPUT_QUESTIONS)}"
+        )
+
+    doc = {k: v for k, v in data.items() if k not in ("missing", "hypotheses", "findings", "question")}
+    doc["schema_version"] = SCHEMA_VERSION
+    doc["status"] = NEEDS_INPUT
+    doc["missing"] = missing
+    doc["question"] = text_field(data, "question") or " ".join(NEEDS_INPUT_QUESTIONS[m] for m in missing)
+
+    warnings = []
+    doc["hypotheses"] = []
+    hypotheses = data.get("hypotheses") or []
+    for i, h in enumerate(hypotheses if isinstance(hypotheses, list) else [], 1):
+        if not isinstance(h, dict) or not text_field(h, "label") or not text_field(h, "goal"):
+            warnings.append(f"dropped hypothesis {i}: needs label and goal")
+            continue
+        scope = h.get("scope") or []
+        if isinstance(scope, str):
+            scope = [scope]
+        doc["hypotheses"].append({
+            "label": text_field(h, "label"),
+            "goal": text_field(h, "goal"),
+            "scope": [str(s).strip() for s in scope if str(s).strip()],
+        })
+    if "goal_specificity" in missing and len(doc["hypotheses"]) < MIN_HYPOTHESES:
+        raise ValueError(
+            f"a too-broad goal (goal_specificity) needs at least {MIN_HYPOTHESES} hypotheses, "
+            f"got {len(doc['hypotheses'])}"
+        )
+    return doc, warnings
+
+
+def load_document(data):
+    """Dispatch on status: a needs-input document or a review document."""
+    if isinstance(data, dict) and data.get("status") == NEEDS_INPUT:
+        return normalize_needs_input(data)
+    return normalize_document(data)
 
 
 def id_number(finding_id):
