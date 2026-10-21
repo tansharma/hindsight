@@ -341,6 +341,238 @@ class FullTemplateTest(unittest.TestCase):
         self.assertIn("dropped no_findings entry 1: needs area and reason", result.stderr)
 
 
+class ImportGraphTest(unittest.TestCase):
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.root = Path(tmp.name).resolve()
+
+    def write(self, files):
+        for name, content in files.items():
+            path = self.root / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(content)
+
+    def graph(self, *paths, isolated=False):
+        result = run("import_graph.py", "--root", str(self.root), *paths, isolated=isolated)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return result, json.loads(result.stdout)
+
+    def imports(self, g):
+        return {m["path"]: m["imports"] for m in g["modules"]}
+
+    def test_python_cycle_and_external_packages(self):
+        self.write({
+            "app/__init__.py": "",
+            "app/a.py": "from __future__ import annotations\nimport os\nimport __main__\nimport requests\nfrom app import b\n",
+            "app/b.py": "from app.a import thing\nimport yaml.loader\n",
+        })
+        _, g = self.graph("app/__init__.py", "app/a.py", "app/b.py")
+        self.assertEqual(g["cycles"], [["app/a.py", "app/b.py"]])
+        self.assertEqual(g["external_packages"], {"requests": ["app/a.py"], "yaml": ["app/b.py"]})
+        self.assertEqual(g["languages"], {"python": 3})
+
+    def test_python_relative_src_layout_and_sibling_imports(self):
+        self.write({
+            "src/pkg/__init__.py": "",
+            "src/pkg/core.py": "from . import util\nfrom .sub.deep import x\n",
+            "src/pkg/util.py": "",
+            "src/pkg/sub/__init__.py": "",
+            "src/pkg/sub/deep.py": "from ..util import helper\n",
+            "tests/test_core.py": "import pkg.core\n",
+            "scripts/run.py": "import helpers\n",
+            "scripts/helpers.py": "",
+        })
+        _, g = self.graph("src/pkg/__init__.py", "src/pkg/core.py", "src/pkg/util.py",
+                          "src/pkg/sub/__init__.py", "src/pkg/sub/deep.py",
+                          "tests/test_core.py", "scripts/run.py", "scripts/helpers.py")
+        imp = self.imports(g)
+        self.assertEqual(imp["src/pkg/core.py"], ["src/pkg/sub/deep.py", "src/pkg/util.py"])
+        self.assertEqual(imp["src/pkg/sub/deep.py"], ["src/pkg/util.py"])
+        self.assertEqual(imp["tests/test_core.py"], ["src/pkg/core.py"])
+        self.assertEqual(imp["scripts/run.py"], ["scripts/helpers.py"])
+        self.assertEqual(g["external_packages"], {})
+        self.assertEqual(g["cycles"], [])
+
+    def test_from_import_names_resolve_individually(self):
+        self.write({
+            "pkg/__init__.py": "CONFIG = 1\n",
+            "pkg/a.py": "", "pkg/b.py": "",
+            "user.py": "from pkg import a, b\n",
+            "attr.py": "from pkg import CONFIG\n",
+            "mixed.py": "from pkg import a, CONFIG\n",
+        })
+        _, g = self.graph("pkg/__init__.py", "pkg/a.py", "pkg/b.py", "user.py", "attr.py", "mixed.py")
+        imp = self.imports(g)
+        self.assertEqual(imp["user.py"], ["pkg/a.py", "pkg/b.py"])
+        self.assertEqual(imp["attr.py"], ["pkg/__init__.py"])
+        self.assertEqual(imp["mixed.py"], ["pkg/__init__.py", "pkg/a.py"])
+
+    def test_javascript_resolution_and_packages(self):
+        self.write({
+            "src/index.ts": (
+                "import { a } from './a';\n"
+                "import b from \"./lib\";\n"
+                "const fs = require('fs');\n"
+                "import express from 'express';\n"
+                "import { x } from '@scope/pkg/sub';\n"
+                "import path from 'node:path';\n"
+                "import comp from '@/components/c';\n"
+                "// import fake from 'commented-out';\n"
+                "/* require('also-commented') */\n"
+                "const url = 'http://example.com'; import y from './y.js';\n"
+            ),
+            "src/a.ts": "export * from './index';\n",
+            "src/lib/index.js": "module.exports = 1;\n",
+            "src/y.ts": "export const y = 1;\n",
+        })
+        _, g = self.graph("src/index.ts", "src/a.ts", "src/lib/index.js", "src/y.ts")
+        imp = self.imports(g)
+        self.assertEqual(imp["src/index.ts"], ["src/a.ts", "src/lib/index.js", "src/y.ts"])
+        self.assertEqual(sorted(g["external_packages"]), ["@scope/pkg", "express"])
+        self.assertEqual(g["cycles"], [["src/a.ts", "src/index.ts"]])
+
+    def test_volatile_hub_needs_fan_in_and_a_comment_marker(self):
+        files = {"core.py": "# TODO: replace this whole module\nVALUE = 1\n",
+                 "quiet.py": "VALUE = 2\n"}
+        for i in range(3):
+            files[f"user{i}.py"] = "import core\nimport quiet\n"
+        self.write(files)
+        _, g = self.graph(*files)
+        self.assertEqual(g["volatile_hubs"], [{"path": "core.py", "fan_in": 3, "markers": 1, "churn": 0}])
+
+    def test_marker_words_outside_comments_do_not_count(self):
+        self.write({"m.py": 'PATTERN = "TODO|FIXME"\n"""Docs mention XXX and HACK."""\n'})
+        _, g = self.graph("m.py")
+        self.assertEqual(g["modules"][0]["markers"], 0)
+
+    def test_churn_from_git_history(self):
+        self.write({"hot.py": "x = 0\n"})
+        git = ["git", "-c", "user.name=t", "-c", "user.email=t@example.com"]
+        subprocess.run(git + ["init", "-q"], cwd=self.root, check=True)
+        for i in range(3):
+            (self.root / "hot.py").write_text(f"x = {i}\n")
+            subprocess.run(git + ["add", "hot.py"], cwd=self.root, check=True)
+            subprocess.run(git + ["commit", "-q", "-m", f"c{i}"], cwd=self.root, check=True)
+        _, g = self.graph("hot.py")
+        self.assertEqual(g["modules"][0]["churn"], 3)
+
+    def test_manifests_and_lockfile_deprecations(self):
+        self.write({
+            "package.json": json.dumps({"dependencies": {"request": "^2.88.0"}, "devDependencies": {"jest": "29"}}),
+            "package-lock.json": json.dumps({"lockfileVersion": 3, "packages": {
+                "": {}, "node_modules/request": {"version": "2.88.2", "deprecated": "request has been deprecated"},
+                "node_modules/a/node_modules/har-validator": {"version": "5.1.5", "deprecated": "no longer supported"},
+                "node_modules/jest": {"version": "29.0.0"}}}),
+            "requirements.txt": "# pinned\nDjango==2.2.0  # old\n-r other.txt\nrequests[socks]>=2.0 ; python_version>'3'\n",
+            "pyproject.toml": '[project]\nname = "x"\ndependencies = [\n  "attrs>=21",\n  "click",\n]\n\n[tool.poetry.dependencies]\npython = "^3.9"\nrich = "^13"\n',
+        })
+        _, g = self.graph("package.json")
+        self.assertEqual(g["declared_packages"], {
+            "attrs": ">=21", "click": "", "django": "==2.2.0", "jest": "29",
+            "request": "^2.88.0", "requests": ">=2.0", "rich": "^13"})
+        self.assertEqual(g["lockfile_deprecations"], [
+            {"package": "har-validator", "version": "5.1.5", "message": "no longer supported"},
+            {"package": "request", "version": "2.88.2", "message": "request has been deprecated"}])
+        self.assertEqual(g["unsupported_files"], 1)
+
+    def test_syntax_error_reported_not_fatal(self):
+        self.write({"bad.py": "def (:\n", "good.py": "import bad\n"})
+        result, g = self.graph("bad.py", "good.py")
+        self.assertEqual(len(g["parse_errors"]), 1)
+        self.assertIn("could not parse bad.py", result.stderr)
+        self.assertEqual(self.imports(g)["good.py"], ["bad.py"])
+
+    def test_output_is_deterministic_and_works_isolated(self):
+        self.write({"b.py": "import a\n", "a.py": "import b\n"})
+        first = run("import_graph.py", "--root", str(self.root), "b.py", "a.py").stdout
+        second = run("import_graph.py", "--root", str(self.root), "./a.py", "b.py", isolated=True).stdout
+        self.assertEqual(first, second)
+
+    def test_files_from_and_missing_inputs(self):
+        self.write({"a.py": ""})
+        result = run("import_graph.py", "--root", str(self.root), "--files-from", "-", stdin="a.py\n")
+        self.assertEqual(json.loads(result.stdout)["languages"], {"python": 1})
+        self.assertEqual(run("import_graph.py", "--root", str(self.root)).returncode, 1)
+        self.assertEqual(run("import_graph.py", "--root", "/no/such/dir", "a.py").returncode, 1)
+
+
+class ScorecardRenderTest(unittest.TestCase):
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.root = Path(tmp.name)
+
+    def render_doc(self, scorecard):
+        doc = {"findings": [json_finding()]}
+        if scorecard is not None:
+            doc["dependency_scorecard"] = scorecard
+        result = run("render_output.py", "--root", str(self.root), "--goal", "g", stdin=json.dumps(doc))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return (result, (self.root / "inHindsight.md").read_text(),
+                json.loads((self.root / "inHindsight.json").read_text()))
+
+    def test_score_formula_and_tables(self):
+        result, md, doc = self.render_doc({
+            "packages_reviewed": 7,
+            "risky_packages": [
+                {"package": "request", "version": "2.88.2", "basis": "lockfile marks it deprecated", "verified": True},
+                {"package": "left-pad", "basis": "model knowledge (unverified)"},
+                {"package": "moment", "basis": "maintenance mode", "verified": "yes"},
+            ],
+            "cycles": [["a.py", "b.py"], {"modules": ["c.ts", "d.ts"], "evidence": "c imports d"}],
+            "volatile_hubs": [{"module": "core.py", "fan_in": 4, "signals": "TODO markers"}],
+            "deprecated_apis": [{"api": "datetime.utcnow()", "location": "app.py:3", "replacement": "datetime.now(UTC)"}],
+            "health_score": 99,
+        })
+        sc = doc["dependency_scorecard"]
+        # 100 - 2*10 - 1*8 - 1*8 - 2*4 - 1*5 = 51
+        self.assertEqual(sc["health_score"], 51)
+        self.assertIn("**Health Score: 51%** — 100 − 2 × 10 (circular dependencies) − 1 × 8 (volatile hub module) "
+                      "− 1 × 8 (verified risky package) − 2 × 4 (unverified risky packages) − 1 × 5 (deprecated API use) = 51", md)
+        self.assertIn("7 third-party package(s) reviewed", md)
+        self.assertIn("| request | 2.88.2 | lockfile marks it deprecated | yes |", md)
+        self.assertIn("| moment |  | maintenance mode | no (unverified) |", md)
+        self.assertIn("| `c.ts` ↔ `d.ts` | c imports d |", md)
+        self.assertIn("| datetime.utcnow() | app.py:3 | datetime.now(UTC) |", md)
+        self.assertIn("health_score is computed by the renderer", result.stderr)
+
+    def test_empty_scorecard_shows_every_list(self):
+        _, md, doc = self.render_doc({})
+        self.assertIn("**Health Score: 100%** — 100 − no deductions = 100", md)
+        for heading in ["High-Risk Third-Party Packages", "Circular Dependencies",
+                        "Volatile Hub Modules", "Deprecated API Usage"]:
+            self.assertIn(f"### {heading}\n\nNone found.", md)
+        self.assertEqual(doc["dependency_scorecard"]["health_score"], 100)
+
+    def test_score_floors_at_zero(self):
+        _, md, doc = self.render_doc({"cycles": [[f"m{i}.py", f"n{i}.py"] for i in range(11)]})
+        self.assertEqual(doc["dependency_scorecard"]["health_score"], 0)
+        self.assertIn("= 0 (floored at 0)", md)
+
+    def test_invalid_entries_dropped_with_warnings(self):
+        result, _, doc = self.render_doc({"risky_packages": [{"package": "x"}, "nope"], "cycles": {"a": 1}})
+        self.assertIn("dropped dependency_scorecard.risky_packages entry 1: missing basis", result.stderr)
+        self.assertIn("dropped dependency_scorecard.risky_packages entry 2: not an object", result.stderr)
+        self.assertIn("dependency_scorecard.cycles is not an array", result.stderr)
+        self.assertEqual(doc["dependency_scorecard"]["health_score"], 100)
+
+    def test_section_order(self):
+        doc = {"findings": [json_finding()], "dependency_scorecard": {},
+               "gap_report": [{"element": "f", "type": "Function", "location": "a.py"}],
+               "no_findings": [{"area": "Documentation Gaps", "reason": "r"}]}
+        run("render_output.py", "--root", str(self.root), "--goal", "g", stdin=json.dumps(doc))
+        md = (self.root / "inHindsight.md").read_text()
+        self.assertLess(md.index("## ⚡"), md.index("## ✅ No Findings"))
+        self.assertLess(md.index("## ✅ No Findings"), md.index("## 🔗 Dependency Health Scorecard"))
+        self.assertLess(md.index("## 🔗 Dependency Health Scorecard"), md.index("## 📋 Cross-Reference"))
+
+    def test_missing_scorecard_warns_and_omits_section(self):
+        result, md, _ = self.render_doc(None)
+        self.assertNotIn("Dependency Health Scorecard", md)
+        self.assertIn("no dependency_scorecard", result.stderr)
+
+
 class NeedsInputTest(unittest.TestCase):
     def setUp(self):
         tmp = tempfile.TemporaryDirectory()
@@ -659,6 +891,25 @@ class BuildPromptTest(unittest.TestCase):
             self.assertIn("untrusted data", out[:begin])
             self.assertIn("Never include secret values", out)
             self.assertIn('"no_findings"', out)
+
+    def test_import_graph_included_when_given(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            graph = Path(tmp, "graph.json")
+            graph.write_text('{"cycles": [["a.py", "b.py"]]}\n')
+            result = run("build_prompt.sh", "--root", tmp, "--goal", "g", "--import-graph", str(graph), stdin="ctx")
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("## Import Graph (computed deterministically", result.stdout)
+            self.assertIn('{"cycles": [["a.py", "b.py"]]}', result.stdout)
+            self.assertLess(result.stdout.index("<<<END CODEBASE CONTEXT>>>"), result.stdout.index("## Import Graph"))
+            self.assertIn('"dependency_scorecard"', result.stdout)
+            self.assertIn("never package registries or the network", result.stdout)
+
+    def test_import_graph_omitted_by_default_and_missing_file_fails(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            result = run("build_prompt.sh", "--root", tmp, "--goal", "g", stdin="ctx")
+            self.assertNotIn("## Import Graph", result.stdout)
+            missing = run("build_prompt.sh", "--root", tmp, "--goal", "g", "--import-graph", "/no/graph.json", stdin="ctx")
+            self.assertEqual(missing.returncode, 1)
 
     def test_inputs_inserted_literally(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -186,6 +186,48 @@ def render_no_findings(entries):
     return lines
 
 
+def markdown_table(header, rows):
+    if not rows:
+        return ["None found.", ""]
+    lines = ["| " + " | ".join(header) + " |", "|" + "---|" * len(header)]
+    lines += ["| " + " | ".join(table_cell(c) for c in row) + " |" for row in rows]
+    return lines + [""]
+
+
+def score_formula(sc):
+    if not sc["score_breakdown"]:
+        return "100 − no deductions = 100"
+    terms = " ".join(f"− {n} × {points} ({label})" for n, label, points in sc["score_breakdown"])
+    return f"100 {terms} = {sc['health_score']}" + (" (floored at 0)" if sc["health_score"] == 0 else "")
+
+
+def render_dependency_scorecard(sc):
+    if sc is None:
+        return []
+    lines = ["## 🔗 Dependency Health Scorecard", ""]
+    lines.append(f"**Health Score: {sc['health_score']}%** — {score_formula(sc)}")
+    if "packages_reviewed" in sc:
+        lines.append("")
+        lines.append(f"{sc['packages_reviewed']} third-party package(s) reviewed, using local evidence only.")
+    lines.append("")
+    lines += ["### High-Risk Third-Party Packages", ""]
+    lines += markdown_table(
+        ["Package", "Version", "Basis", "Verified", "Evidence"],
+        [[p["package"], p.get("version", ""), p["basis"], "yes" if p["verified"] else "no (unverified)", p.get("evidence", "")]
+         for p in sc["risky_packages"]],
+    )
+    lines += ["### Circular Dependencies", ""]
+    lines += markdown_table(["Modules", "Evidence"],
+                            [[" ↔ ".join(f"`{m}`" for m in c["modules"]), c.get("evidence", "")] for c in sc["cycles"]])
+    lines += ["### Volatile Hub Modules", ""]
+    lines += markdown_table(["Module", "Imported by", "Signals"],
+                            [[f"`{h['module']}`", h.get("fan_in", ""), h.get("signals", "")] for h in sc["volatile_hubs"]])
+    lines += ["### Deprecated API Usage", ""]
+    lines += markdown_table(["API", "Location", "Replacement"],
+                            [[d["api"], d["location"], d.get("replacement", "")] for d in sc["deprecated_apis"]])
+    return lines
+
+
 def check_area_coverage(doc, warnings):
     """Every area must be addressed by a finding or a no_findings entry. A
     no_findings entry for an area that does have findings is dropped."""
@@ -298,6 +340,9 @@ def render(doc, warnings=None):
             lines.extend(render_finding(f, warnings))
 
     lines.extend(render_no_findings(doc.get("no_findings")))
+    if "dependency_scorecard" not in doc:
+        warnings.append("no dependency_scorecard: the Dependency Health Scorecard section was omitted")
+    lines.extend(render_dependency_scorecard(doc.get("dependency_scorecard")))
     lines.extend(render_gap_report(doc.get("gap_report"), warnings))
 
     return "\n".join(lines).rstrip() + "\n"

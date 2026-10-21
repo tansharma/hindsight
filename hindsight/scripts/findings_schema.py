@@ -28,6 +28,14 @@ A findings document is a JSON object:
                                       # optional; an area with nothing worth
                                       # reporting, and why it is clean
       "gap_report": [ {"element", "type", "location"}, ... ],  # optional
+      "dependency_scorecard": {       # optional; see SCORE_DEDUCTIONS
+        "packages_reviewed": 12,
+        "risky_packages": [ {"package", "version", "basis", "evidence",
+                             "verified": true | false}, ... ],
+        "cycles": [ {"modules": ["a.py", "b.py"], "evidence"}, ... ],
+        "volatile_hubs": [ {"module", "fan_in", "signals"}, ... ],
+        "deprecated_apis": [ {"api", "location", "replacement"}, ... ]
+      },
       "since_last_review": [ {"id", "title", "status", "evidence"}, ... ]
                                       # optional; status is resolved | partial |
                                       # unresolved | obsolete
@@ -84,6 +92,28 @@ NEEDS_INPUT_QUESTIONS = {
 }
 
 MIN_HYPOTHESES = 3
+
+# The Dependency Health Score is computed, never model-assigned: start at
+# 100% and subtract a fixed amount per issue, floored at 0. A risky package
+# counts more when its risk is verified by local evidence (lockfile
+# deprecation, deprecated API in use) than when it rests on the model's
+# unverified knowledge.
+SCORE_DEDUCTIONS = [
+    # (count key, singular label, plural label, points per issue)
+    ("cycles", "circular dependency", "circular dependencies", 10),
+    ("volatile_hubs", "volatile hub module", "volatile hub modules", 8),
+    ("verified_risky_packages", "verified risky package", "verified risky packages", 8),
+    ("unverified_risky_packages", "unverified risky package", "unverified risky packages", 4),
+    ("deprecated_apis", "deprecated API use", "deprecated API uses", 5),
+]
+
+# Required text fields per scorecard list.
+SCORECARD_LISTS = {
+    "risky_packages": ("package", "basis"),
+    "cycles": ("modules",),
+    "volatile_hubs": ("module",),
+    "deprecated_apis": ("api", "location"),
+}
 
 LEGACY_KEYS = {
     "Area": "area",
@@ -223,7 +253,75 @@ def normalize_document(data):
             warnings.append(f"dropped no_findings entry {i}: needs area and reason")
             continue
         doc["no_findings"].append({"area": normalize_area(text_field(e, "area")), "reason": text_field(e, "reason")})
+
+    if "dependency_scorecard" in data:
+        doc["dependency_scorecard"] = normalize_scorecard(data["dependency_scorecard"], warnings)
+        if doc["dependency_scorecard"] is None:
+            del doc["dependency_scorecard"]
     return doc, warnings
+
+
+def normalize_scorecard(raw, warnings):
+    """Normalize the dependency scorecard and compute its health score.
+    Returns None (with a warning) if it isn't an object."""
+    if not isinstance(raw, dict):
+        warnings.append("dependency_scorecard is not an object; ignored")
+        return None
+    sc = {}
+    if isinstance(raw.get("packages_reviewed"), int) and not isinstance(raw["packages_reviewed"], bool):
+        sc["packages_reviewed"] = raw["packages_reviewed"]
+    for key, required in SCORECARD_LISTS.items():
+        entries = raw.get(key) or []
+        if not isinstance(entries, list):
+            warnings.append(f"dependency_scorecard.{key} is not an array; ignored")
+            entries = []
+        sc[key] = []
+        for i, e in enumerate(entries, 1):
+            if key == "cycles" and isinstance(e, list):
+                e = {"modules": e}  # a bare module list, as import_graph.py prints
+            if not isinstance(e, dict):
+                warnings.append(f"dropped dependency_scorecard.{key} entry {i}: not an object")
+                continue
+            entry = {}
+            for k, v in e.items():
+                if k == "modules":
+                    mods = [str(m).strip() for m in (v if isinstance(v, list) else [v]) if str(m).strip()]
+                    if mods:
+                        entry["modules"] = mods
+                elif k == "verified":
+                    entry["verified"] = v is True
+                elif k == "fan_in":
+                    if isinstance(v, int) and not isinstance(v, bool):
+                        entry["fan_in"] = v
+                elif isinstance(v, (str, int, float)) and str(v).strip():
+                    entry[k] = str(v).strip()
+            missing = [r for r in required if r not in entry]
+            if missing:
+                warnings.append(f"dropped dependency_scorecard.{key} entry {i}: missing {', '.join(missing)}")
+                continue
+            if key == "risky_packages":
+                entry.setdefault("verified", False)
+            sc[key].append(entry)
+    if "health_score" in raw:
+        warnings.append("dependency_scorecard.health_score is computed by the renderer; the supplied value was replaced")
+    sc["health_score"], sc["score_breakdown"] = health_score(sc)
+    return sc
+
+
+def health_score(sc):
+    """Return (score, breakdown) where breakdown lists (count, label, points)
+    for each nonzero deduction."""
+    counts = {
+        "cycles": len(sc.get("cycles", [])),
+        "volatile_hubs": len(sc.get("volatile_hubs", [])),
+        "verified_risky_packages": sum(1 for p in sc.get("risky_packages", []) if p.get("verified")),
+        "unverified_risky_packages": sum(1 for p in sc.get("risky_packages", []) if not p.get("verified")),
+        "deprecated_apis": len(sc.get("deprecated_apis", [])),
+    }
+    breakdown = [[counts[key], singular if counts[key] == 1 else plural, points]
+                 for key, singular, plural, points in SCORE_DEDUCTIONS if counts[key]]
+    score = max(0, 100 - sum(n * points for n, _, points in breakdown))
+    return score, breakdown
 
 
 def normalize_needs_input(data):

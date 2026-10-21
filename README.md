@@ -60,6 +60,8 @@ For the single most critical finding in each review, Hindsight also generates a 
 
 Hindsight also cross-references every Documentation Gaps finding against the actual code: it lists the specific public functions, classes, and interfaces missing a doc-comment (in whatever convention is idiomatic to that language) or a usage example in the primary docs, as a Cross-Reference Gap Report at the end of `inHindsight.md`.
 
+Every review also includes a **Dependency Health Scorecard**, a quantitative view of architectural risk from third-party packages and internal coupling. It lists high-risk packages, circular imports between your modules, "volatile hub" modules (imported by many others, but full of TODO/FIXME markers or changed constantly), and calls to deprecated APIs. It also gives a Health Score computed by a fixed, visible formula, so the same project gets the same score. For Python and JavaScript/TypeScript, the import graph is computed by a script rather than estimated. Package risk is judged from local evidence only (manifests, lockfiles, the code itself), with no network calls. Anything that rests on the model's own knowledge is marked "unverified".
+
 ## Running unattended (CI, headless, or from another agent)
 
 When nobody can answer Hindsight's questions — `claude -p`, `codex exec`, a CI job, or another agent delegating the review — run it in non-interactive mode by saying so in the invocation ("non-interactive", "--yes") or by setting `HINDSIGHT_NONINTERACTIVE=1`. Hindsight also switches on its own when it is plainly running without a person (for example as a subagent).
@@ -103,3 +105,4 @@ python3 -m unittest discover -s tests -v
 | 10 | Script hardening. Fix parser/renderer/input edge cases, keep reads inside the project root, resolve script paths from the skill dir, add a regression suite. | Done | /scripts/*, tests/test_scripts.py |
 | 11 | JSON findings contract. Findings as a JSON document with stable IDs and required "Done when"; full-template renderer; `inHindsight.json` sidecar; timestamped `hindsight-history/` on re-runs. | Done | /scripts/findings_schema.py, /scripts/render_output.py |
 | 12 | Agentic mode and safety. Non-interactive mode with needs-input status files and a fixed result line; deterministic file listing; secret-file skipping; untrusted-content guardrails; explicit "no findings" per area. | Done | /scripts/list_files.sh, /scripts/common.sh, SKILL.md Execution Modes |
+| 13 | Dependency Health Scorecarding. Risky packages, circular imports, volatile hub modules, and deprecated API use, with a formula-computed Health Score; local evidence only. | Done | /scripts/import_graph.py, SKILL.md Steps 2-3 & 5 |

@@ -39,6 +39,13 @@
       "done_when": "README.md opens with a 'Where to start' paragraph naming `handover.md`."
     }
   ],
+  "dependency_scorecard": {
+    "packages_reviewed": 0,
+    "risky_packages": [],
+    "cycles": [],
+    "volatile_hubs": [],
+    "deprecated_apis": []
+  },
   "gap_report": [
     {"element": "parse_findings", "type": "Function", "location": "hindsight/scripts/parse_findings.py"}
   ]
