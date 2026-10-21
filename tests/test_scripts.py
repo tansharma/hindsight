@@ -585,7 +585,7 @@ class ListFilesTest(unittest.TestCase):
         self.assertEqual(files, [".env.example", "a.py", "b.py", "docs/guide.md"])
         self.assertIn("possible secret, not listed: .env", result.stderr)
         self.assertIn("possible secret, not listed: keys/id_rsa", result.stderr)
-        self.assertIn("Listed 4 file(s); skipped 1 binary, 2 possible secret.", result.stderr)
+        self.assertIn("Listed 4 file(s); skipped 1 binary, 2 possible secret, 0 Hindsight output.", result.stderr)
 
     def test_respects_gitignore_in_git_repo(self):
         (self.root / ".gitignore").write_text("ignored.log\n")
@@ -597,6 +597,29 @@ class ListFilesTest(unittest.TestCase):
         self.assertIn("b.py", files)  # untracked but not ignored
         self.assertNotIn("ignored.log", files)
         self.assertNotIn(".env", files)
+
+    def test_skips_hindsights_own_outputs(self):
+        # A re-run must not review the previous review (found in the
+        # 2026-10-21 headless check, where nothing gitignored the outputs).
+        for name in ["inHindsight.md", "inHindsight.json",
+                     "hindsight-history/2026-10-21T094653-inHindsight.md",
+                     "hindsight-history/2026-10-21T094653-inHindsight.json",
+                     "packages/api/inHindsight.md"]:
+            path = self.root / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text("{}\n")
+        result, files = self.listing()
+        self.assertEqual(files, [".env.example", "a.py", "b.py", "docs/guide.md"])
+        self.assertIn("skipped 1 binary, 2 possible secret, 3 Hindsight output.", result.stderr)
+
+    def test_similarly_named_files_still_listed(self):
+        for name in ["inHindsight.md.bak", "notes/hindsight-history.md", "inhindsight_notes.md"]:
+            path = self.root / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text("x\n")
+        _, files = self.listing()
+        for name in ["inHindsight.md.bak", "notes/hindsight-history.md", "inhindsight_notes.md"]:
+            self.assertIn(name, files)
 
     def test_output_feeds_files_from(self):
         listing = self.root.parent / f"{self.root.name}-list.txt"

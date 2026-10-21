@@ -12,7 +12,8 @@
 # Behavior:
 #   - In a git work tree, lists tracked plus untracked-but-not-ignored files,
 #     so .gitignore is respected; otherwise walks the tree with find.
-#   - Always skips common.sh's PRUNE_DIRS (dependency/build dirs), symlinks,
+#   - Always skips common.sh's PRUNE_DIRS (dependency/build dirs and
+#     hindsight-history/), Hindsight's own inHindsight.md/.json, symlinks,
 #     binary files, and files whose names look like secrets (.env, *.pem,
 #     id_rsa, ...), naming each secret skipped on stderr.
 #   - Logs a summary line to stderr. Nothing but paths goes to stdout.
@@ -81,6 +82,7 @@ candidates() {
 listed=()
 binary_count=0
 secret_count=0
+output_count=0
 
 while IFS= read -r -d '' f; do
   f="${f#./}"
@@ -90,6 +92,10 @@ while IFS= read -r -d '' f; do
   fi
   [[ -f "$f" && ! -L "$f" ]] || continue
   in_pruned_dir "$f" && continue
+  if is_hindsight_output "$f"; then
+    output_count=$((output_count + 1))
+    continue
+  fi
   if is_secret_path "$f"; then
     echo "Warning: possible secret, not listed: $f" >&2
     secret_count=$((secret_count + 1))
@@ -106,4 +112,4 @@ if (( ${#listed[@]} > 0 )); then
   printf '%s\n' "${listed[@]}" | LC_ALL=C sort
 fi
 
-echo "Listed ${#listed[@]} file(s); skipped $binary_count binary, $secret_count possible secret." >&2
+echo "Listed ${#listed[@]} file(s); skipped $binary_count binary, $secret_count possible secret, $output_count Hindsight output." >&2

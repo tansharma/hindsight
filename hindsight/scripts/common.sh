@@ -4,7 +4,18 @@
 BINARY_SNIFF_BYTES=8192
 
 # Directory names never descended into when listing or summarizing a project.
-PRUNE_DIRS=(.git node_modules vendor dist build target .venv venv __pycache__)
+# hindsight-history/ holds Hindsight's own archived reviews.
+PRUNE_DIRS=(.git node_modules vendor dist build target .venv venv __pycache__ hindsight-history)
+
+# True if the path is one of Hindsight's own output files (at any depth, so
+# a review of a subproject is skipped too). A re-run must not review the
+# previous review as if it were project content.
+is_hindsight_output() {
+  case "$(basename "$1")" in
+    inHindsight.md|inHindsight.json) return 0 ;;
+  esac
+  return 1
+}
 
 is_binary() {
   local sniffed stripped

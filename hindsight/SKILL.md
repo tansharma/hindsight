@@ -117,7 +117,8 @@ prose, or earlier conversation; there is no fixed CLI syntax.
    - Given only a directory, enumerate it with
      `bash "<skill-dir>/scripts/list_files.sh" --root "<project_root>"`
      — it respects `.gitignore` in a git repo and skips `.git/`, dependency
-     and build directories, binaries, and files that look like secrets —
+     and build directories, binaries, files that look like secrets, and
+     Hindsight's own `inHindsight.md`/`.json` and `hindsight-history/` —
      so the same tree always yields the same list. Show the count (and a
      top-level breakdown) in the scope confirmation below; wait for the
      user's go-ahead only if the count exceeds the cap.
@@ -559,8 +560,10 @@ bash "$S/aggregate_context.sh" --root <path> --files-from files.txt \
 
 - `list_files.sh` — Step 1's deterministic enumeration: prints the files to
   review under `--root`, one per line, sorted. Respects `.gitignore` in a
-  git work tree; always skips dependency/build dirs, symlinks, binaries,
-  and secret-looking files (naming each secret it skips on stderr).
+  git work tree; always skips dependency/build dirs, Hindsight's own
+  outputs (`inHindsight.md`/`.json`, `hindsight-history/`), symlinks,
+  binaries, and secret-looking files (naming each secret it skips on
+  stderr).
 - `common.sh` — helpers sourced by the shell scripts: the pruned-directory
   list, binary sniffing, the secret-filename patterns, and the shared
   `--files` / `--files-from` reader. Not run directly.
