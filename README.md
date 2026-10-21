@@ -10,4 +10,4 @@ Hindsight is an advanced skill for experienced software engineers seeking deep a
 
 **Note** Hindsight reads a project's documentation before its code to learn what was intended, so a short intent document at your repository root makes every review sharper. `examples/Project.md` is a sample with three sections (Idea, Ambition, Goal); it is also Hindsight's own spec. Copy it to your repo root as `Project.md` and replace its content with your project's. The skill still runs without one, inferring intent from your goal, README, and other docs. **TL;DR** Add a Project.md to your repo with 3 defined sections: Idea, Ambition, Goal.
 
-Full documentation (install, usage, unattended runs, helper scripts, development): [docs/](docs/index.md).
+Full documentation (install, usage, unattended runs, helper scripts, development): [tansharma.github.io/hindsight](https://tansharma.github.io/hindsight/).

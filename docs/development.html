@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Running the tests (for skill developers) · Hindsight</title>
+<meta name="description" content="Hindsight is an Agent Skill for Claude Code, Codex CLI, Gemini CLI and GitHub Copilot that reviews a whole project against a goal you state and ranks its findings by Impact/Effort.">
+<meta name="color-scheme" content="light dark">
+<link rel="icon" href="./hindsight.ico">
+<link rel="apple-touch-icon" href="./assets/apple-touch-icon.png">
+<link rel="stylesheet" href="./hindsight.css">
+</head>
+<body>
+<a class="skip-link" href="#main">Skip to content</a>
+
+<header class="site-header">
+  <div class="shell site-header__inner">
+    <a class="wordmark" href="./index.html" aria-label="Hindsight home">
+      <span class="wordmark__text">HINDSIGHT</span>
+      <span class="wordmark__rule"></span>
+    </a>
+    <nav class="site-nav" aria-label="Primary">
+      <a href="./install.html">Install</a>
+      <a href="./usage.html">Usage</a>
+      <a href="./unattended.html">Unattended</a>
+      <a href="./scripts.html">Scripts</a>
+      <a href="./development.html" aria-current="page">Development</a>
+    </nav>
+  </div>
+</header>
+
+<main id="main">
+  <div class="shell">
+
+    <p class="meta meta--accent">Development</p>
+    <h1>Running the tests (for skill developers)</h1>
+
+    <p class="lede">You don't need this page, or the <code>tests/</code> directory, to install or use Hindsight. It's for anyone changing the skill itself.</p>
+
+    <p>The helper scripts in <code>hindsight/scripts/</code> have a regression suite in <code>tests/</code> (Python standard library only, nothing to install). From the repo root:</p>
+
+    <pre><code>python3 -m unittest discover -s tests -v</code></pre>
+
+    <p><code>tests/</code> sits outside <code>hindsight/</code> on purpose, so it isn't copied when you install the skill.</p>
+
+    <h2>Accuracy and consistency eval (opt-in, costs money)</h2>
+
+    <p>The unit tests cover the scripts; they can't tell you whether reviews are <em>right</em>. <code>tests/eval/</code> runs the installed skill headlessly on a small fixture project (<code>orders-svc</code>) with known planted issues (an architectural drift from the README's promise, a duplicated workaround, a stale doc claim, and an instruction aimed at AI reviewers), plus a fake secret. It then grades each <code>inHindsight.json</code> mechanically: which planted issues were found (matched by cited file and line), whether the secret or the injected command leaked, whether every area was addressed, and how much evidence the renderer couldn't verify. Across runs it shows how often each planted issue was found and which Impact/Effort bucket it landed in, which is a direct measure of consistency.</p>
+
+    <pre><code>bash tests/eval/run.sh                          # prints the spending cap, runs nothing
+bash tests/eval/run.sh --yes --runs 2 --budget 1.00</code></pre>
+
+    <p>Each run is capped with <code>claude --max-budget-usd</code>, so the most it can cost is runs × budget; a full review cost about $0.65 in earlier headless checks. It evaluates the copy in <code>~/.claude/skills/hindsight</code> (it warns when that differs from this repo's <code>hindsight/</code>), needs the <code>claude</code> CLI, and never runs as part of <code>python3 -m unittest discover -s tests</code>. The fake secret and the injected comment are written into a temporary copy at run time, so neither is committed here. The grader works on its own too: <code>python3 tests/eval/grade.py --expected tests/eval/fixtures/orders-svc.expected.json &lt;inHindsight.json&gt;...</code>.</p>
+
+  </div>
+</main>
+
+<footer class="site-footer">
+  <div class="shell">
+    <p>Hindsight: a retrospective architectural review skill for Claude Code, Codex CLI, Gemini CLI and GitHub Copilot.</p>
+    <p>© 2026 Tanay Sharma. <a href="https://github.com/tansharma/hindsight">Source on GitHub</a></p>
+  </div>
+</footer>
+
+</body>
+</html>

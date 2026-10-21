@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Installing Hindsight · Hindsight</title>
+<meta name="description" content="Hindsight is an Agent Skill for Claude Code, Codex CLI, Gemini CLI and GitHub Copilot that reviews a whole project against a goal you state and ranks its findings by Impact/Effort.">
+<meta name="color-scheme" content="light dark">
+<link rel="icon" href="./hindsight.ico">
+<link rel="apple-touch-icon" href="./assets/apple-touch-icon.png">
+<link rel="stylesheet" href="./hindsight.css">
+</head>
+<body>
+<a class="skip-link" href="#main">Skip to content</a>
+
+<header class="site-header">
+  <div class="shell site-header__inner">
+    <a class="wordmark" href="./index.html" aria-label="Hindsight home">
+      <span class="wordmark__text">HINDSIGHT</span>
+      <span class="wordmark__rule"></span>
+    </a>
+    <nav class="site-nav" aria-label="Primary">
+      <a href="./install.html" aria-current="page">Install</a>
+      <a href="./usage.html">Usage</a>
+      <a href="./unattended.html">Unattended</a>
+      <a href="./scripts.html">Scripts</a>
+      <a href="./development.html">Development</a>
+    </nav>
+  </div>
+</header>
+
+<main id="main">
+  <div class="shell">
+
+    <p class="meta meta--accent">Install</p>
+    <h1>Installing Hindsight</h1>
+
+    <h2>Requirements</h2>
+
+    <ul>
+      <li>One of the supported tools below, using whichever model it is configured with.</li>
+      <li><code>python3</code> 3.9 or newer and <code>bash</code> (3.2, the macOS default, is fine). They run the helper scripts in <code>hindsight/scripts/</code>. Nothing needs to be installed beyond the standard library.</li>
+      <li><code>git</code> (optional). In a git repository, Hindsight respects <code>.gitignore</code> when listing files and uses commit history to spot frequently changed modules.</li>
+      <li><strong>Windows:</strong> the <code>.sh</code> helpers need a bash, such as Git Bash or WSL. The Python helpers run natively.</li>
+    </ul>
+
+    <h2>Get the skill</h2>
+
+    <p>Clone the repository; the commands on this page run from its root:</p>
+
+    <pre><code>git clone https://github.com/tansharma/hindsight.git
+cd hindsight</code></pre>
+
+    <h2>Integrating Hindsight into your workflow</h2>
+
+    <p>Hindsight is a portable Agent Skill. The folder <code>hindsight/</code> contains a <code>SKILL.md</code> along with a <code>scripts/</code> helper directory and a <code>references/</code> directory the agent reads only when needed. This folder works, unmodified, in Claude Code, Codex CLI, Gemini CLI, and GitHub Copilot. Each discovers skills the same way, from a <code>skills/</code> directory: personal (applies to all your projects) or project-level (applies only inside one repo).</p>
+
+    <p>The whole skill lives in the <code>hindsight/</code> folder at the root of the repo. To install it, copy that folder into the tool's <code>skills/</code> directory. Keep the folder name <code>hindsight</code> and keep <code>SKILL.md</code>, <code>scripts/</code>, and <code>references/</code> together inside it. Nothing else in the repo is needed to use the skill. <code>tests/</code> is only for developing the skill further (see <a href="./development.html">Developing the skill</a>), so you can ignore or delete it.</p>
+
+    <p>The commands below copy the folder <em>into</em> the <code>skills/</code> directory, so running the same command again updates an existing install in place. (Copying to <code>…/skills/hindsight</code> instead would nest a second <code>hindsight/</code> inside an existing install.) Files deleted from the skill in a newer version aren't removed by an update. To get an exact copy, delete the installed <code>hindsight</code> folder first.</p>
+
+    <h3>Claude Code</h3>
+
+    <ul>
+      <li><strong>Personal</strong> (every project): <code>~/.claude/skills/hindsight/</code></li>
+      <li><strong>Project-level</strong> (this repo only): <code>.claude/skills/hindsight/</code> at the repo root</li>
+    </ul>
+
+    <p class="meta">macOS / Linux:</p>
+
+    <pre><code>mkdir -p ~/.claude/skills
+cp -R hindsight ~/.claude/skills/</code></pre>
+
+    <p class="meta">Windows (PowerShell):</p>
+
+    <pre><code>New-Item -ItemType Directory -Force -Path "$env:USERPROFILE\.claude\skills" | Out-Null
+Copy-Item -Recurse -Force hindsight "$env:USERPROFILE\.claude\skills"</code></pre>
+
+    <p>For a project-level install, use <code>.claude/skills</code> (<code>.claude\skills</code> on Windows) at the repo root as the destination instead.</p>
+
+    <p>No restart needed. Claude Code picks up skills added under <code>~/.claude/skills/</code> (<code>%USERPROFILE%\.claude\skills\</code> on Windows) or <code>.claude/skills/</code> within the current session. Invoke it by typing <code>/hindsight</code> in Claude Code, or just describe the task ("do a hindsight review of this project") and Claude will trigger the skill from its description.</p>
+
+    <h3>Codex CLI</h3>
+
+    <ul>
+      <li><strong>Personal</strong>: <code>~/.codex/skills/hindsight/</code></li>
+      <li><strong>Project-level</strong>: <code>.codex/skills/hindsight/</code> at the repo root</li>
+    </ul>
+
+    <p class="meta">macOS / Linux:</p>
+
+    <pre><code>mkdir -p ~/.codex/skills
+cp -R hindsight ~/.codex/skills/</code></pre>
+
+    <p class="meta">Windows (PowerShell):</p>
+
+    <pre><code>New-Item -ItemType Directory -Force -Path "$env:USERPROFILE\.codex\skills" | Out-Null
+Copy-Item -Recurse -Force hindsight "$env:USERPROFILE\.codex\skills"</code></pre>
+
+    <p>For a project-level install, use <code>.codex/skills</code> (<code>.codex\skills</code> on Windows) at the repo root instead.</p>
+
+    <p>Codex scans both directories at session startup and loads skills automatically based on their description. Invoke with <code>/hindsight</code>, or describe the task in prose.</p>
+
+    <h3>Gemini CLI</h3>
+
+    <ul>
+      <li><strong>Personal</strong>: <code>~/.gemini/skills/hindsight/</code> (alias: <code>~/.agents/skills/hindsight/</code>)</li>
+      <li><strong>Project-level</strong>: <code>.gemini/skills/hindsight/</code> at the repo root (alias: <code>.agents/skills/hindsight/</code>)</li>
+    </ul>
+
+    <p class="meta">macOS / Linux:</p>
+
+    <pre><code>mkdir -p ~/.gemini/skills
+cp -R hindsight ~/.gemini/skills/</code></pre>
+
+    <p class="meta">Windows (PowerShell):</p>
+
+    <pre><code>New-Item -ItemType Directory -Force -Path "$env:USERPROFILE\.gemini\skills" | Out-Null
+Copy-Item -Recurse -Force hindsight "$env:USERPROFILE\.gemini\skills"</code></pre>
+
+    <p>The <code>~/.agents/skills/</code> alias maps to <code>%USERPROFILE%\.agents\skills\</code> on Windows; use whichever your Gemini CLI install already has set up. For a project-level install, use <code>.gemini/skills</code> (or <code>.agents/skills</code>) at the repo root instead.</p>
+
+    <p>Confirm it's discovered with <code>/skills list</code>, then invoke with <code>/hindsight</code> or by describing the task.</p>
+
+    <h3>GitHub Copilot</h3>
+
+    <p>Copilot supports Agent Skills in VS Code agent mode, the Copilot CLI, the Copilot app, and the Copilot cloud agent. Install Hindsight like any other skill:</p>
+
+    <ul>
+      <li><strong>Personal</strong>: <code>~/.copilot/skills/hindsight/</code> (alias: <code>~/.agents/skills/hindsight/</code>; VS Code also reads <code>~/.claude/skills/</code>)</li>
+      <li><strong>Project-level</strong>: <code>.github/skills/hindsight/</code> at the repo root (aliases: <code>.agents/skills/hindsight/</code>, <code>.claude/skills/hindsight/</code>)</li>
+    </ul>
+
+    <p class="meta">macOS / Linux:</p>
+
+    <pre><code>mkdir -p ~/.copilot/skills
+cp -R hindsight ~/.copilot/skills/</code></pre>
+
+    <p class="meta">Windows (PowerShell):</p>
+
+    <pre><code>New-Item -ItemType Directory -Force -Path "$env:USERPROFILE\.copilot\skills" | Out-Null
+Copy-Item -Recurse -Force hindsight "$env:USERPROFILE\.copilot\skills"</code></pre>
+
+    <p>For a project-level install, use <code>.github/skills</code> (<code>.github\skills</code> on Windows) at the repo root instead. A project-level <code>.claude/skills/hindsight/</code> install is shared by Claude Code and Copilot.</p>
+
+    <p>Copilot matches your request against the skill's description, so "do a hindsight review of this project against goal X" loads it. In VS Code it is also available as the <code>/hindsight</code> slash command.</p>
+
+    <p><em>Older Copilot versions without Agent Skills:</em> point Copilot at the skill through repository custom instructions instead. Add a line like "For architectural reviews, follow <code>hindsight/SKILL.md</code> and its <code>hindsight/scripts/</code> helpers" to <code>.github/copilot-instructions.md</code>, keeping the <code>hindsight/</code> folder in the repo.</p>
+
+    <p class="next">Next: <a href="./usage.html">Using Hindsight</a></p>
+
+  </div>
+</main>
+
+<footer class="site-footer">
+  <div class="shell">
+    <p>Hindsight: a retrospective architectural review skill for Claude Code, Codex CLI, Gemini CLI and GitHub Copilot.</p>
+    <p>© 2026 Tanay Sharma. <a href="https://github.com/tansharma/hindsight">Source on GitHub</a></p>
+  </div>
+</footer>
+
+</body>
+</html>

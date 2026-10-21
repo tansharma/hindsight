@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Using the helper scripts directly · Hindsight</title>
+<meta name="description" content="Hindsight is an Agent Skill for Claude Code, Codex CLI, Gemini CLI and GitHub Copilot that reviews a whole project against a goal you state and ranks its findings by Impact/Effort.">
+<meta name="color-scheme" content="light dark">
+<link rel="icon" href="./hindsight.ico">
+<link rel="apple-touch-icon" href="./assets/apple-touch-icon.png">
+<link rel="stylesheet" href="./hindsight.css">
+</head>
+<body>
+<a class="skip-link" href="#main">Skip to content</a>
+
+<header class="site-header">
+  <div class="shell site-header__inner">
+    <a class="wordmark" href="./index.html" aria-label="Hindsight home">
+      <span class="wordmark__text">HINDSIGHT</span>
+      <span class="wordmark__rule"></span>
+    </a>
+    <nav class="site-nav" aria-label="Primary">
+      <a href="./install.html">Install</a>
+      <a href="./usage.html">Usage</a>
+      <a href="./unattended.html">Unattended</a>
+      <a href="./scripts.html" aria-current="page">Scripts</a>
+      <a href="./development.html">Development</a>
+    </nav>
+  </div>
+</header>
+
+<main id="main">
+  <div class="shell">
+
+    <p class="meta meta--accent">Helper scripts</p>
+    <h1>Using the helper scripts directly</h1>
+
+    <p class="lede">The agent runs these for you during a review, but they also work on their own (<code>S=hindsight/scripts</code>, or wherever you installed the skill):</p>
+
+    <pre><code>bash "$S/list_files.sh" --root path/to/project &gt; files.txt          # the files a review would scan
+python3 "$S/import_graph.py" --root path/to/project --files-from files.txt &gt; graph.json
+python3 "$S/render_output.py" --check --root path/to/project --goal "..." findings.json   # validate only
+python3 "$S/render_output.py" --root path/to/project --goal "..." findings.json           # write inHindsight.md/.json</code></pre>
+
+    <p><code>render_output.py --check</code> exits 0 when a findings document is clean, 2 when it has warnings (unverifiable evidence, an unaddressed area, a re-run that doesn't account for the previous review), and 1 when it can't be rendered. A real render moves any previous review into <code>hindsight-history/</code> first. Script internals are documented in <code>hindsight/references/scripts.md</code>.</p>
+
+    <p class="next">Next: <a href="./development.html">Developing the skill</a></p>
+
+  </div>
+</main>
+
+<footer class="site-footer">
+  <div class="shell">
+    <p>Hindsight: a retrospective architectural review skill for Claude Code, Codex CLI, Gemini CLI and GitHub Copilot.</p>
+    <p>© 2026 Tanay Sharma. <a href="https://github.com/tansharma/hindsight">Source on GitHub</a></p>
+  </div>
+</footer>
+
+</body>
+</html>

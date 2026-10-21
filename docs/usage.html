@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Using Hindsight · Hindsight</title>
+<meta name="description" content="Hindsight is an Agent Skill for Claude Code, Codex CLI, Gemini CLI and GitHub Copilot that reviews a whole project against a goal you state and ranks its findings by Impact/Effort.">
+<meta name="color-scheme" content="light dark">
+<link rel="icon" href="./hindsight.ico">
+<link rel="apple-touch-icon" href="./assets/apple-touch-icon.png">
+<link rel="stylesheet" href="./hindsight.css">
+</head>
+<body>
+<a class="skip-link" href="#main">Skip to content</a>
+
+<header class="site-header">
+  <div class="shell site-header__inner">
+    <a class="wordmark" href="./index.html" aria-label="Hindsight home">
+      <span class="wordmark__text">HINDSIGHT</span>
+      <span class="wordmark__rule"></span>
+    </a>
+    <nav class="site-nav" aria-label="Primary">
+      <a href="./install.html">Install</a>
+      <a href="./usage.html" aria-current="page">Usage</a>
+      <a href="./unattended.html">Unattended</a>
+      <a href="./scripts.html">Scripts</a>
+      <a href="./development.html">Development</a>
+    </nav>
+  </div>
+</header>
+
+<main id="main">
+  <div class="shell">
+
+    <p class="meta meta--accent">Usage</p>
+    <h1>Using Hindsight</h1>
+
+    <p class="lede">This works the same in Claude Code, Codex, Gemini, and Copilot. However you invoke it, Hindsight needs three inputs up front to run:</p>
+
+    <ol>
+      <li><strong>Project root</strong> — The directory to review.</li>
+      <li><strong>File list</strong>    — Which files to scan. If you name only a directory, Hindsight lists it the same way every time: it respects <code>.gitignore</code> and skips dependency and build folders, binaries, secret-looking files such as <code>.env</code>, and its own earlier output. The cap is ~300 files, as a guideline; it asks before going over it.</li>
+      <li><strong>User goal</strong>    — A defined purpose or use case for the project (e.g. "this service handles payment processing"). This is mandatory: Hindsight will stop and ask for it if you omit it. If the goal you give is too bare to anchor a review (e.g. "make it faster"), Hindsight will instead propose three concrete hypotheses for what you likely mean, each with a short checklist of the files/modules that matter for it, and ask you to pick one before continuing.</li>
+    </ol>
+
+    <p>Example invocation:</p>
+
+    <pre><code>/hindsight review this repo against the goal "low-latency read path for a payment API", scanning everything under src/</code></pre>
+
+    <h2>What a review produces</h2>
+
+    <p>Hindsight writes its findings to <code>inHindsight.md</code> at the project root. Findings are grouped by Impact/Effort, then by area (Architectural Patterns, Code Quality, Documentation Gaps). Every area is addressed: one with genuinely nothing to report is listed under "No Findings" with the reason, rather than padded with a nit. Each finding has a stable ID (<code>H-001</code>, <code>H-002</code>, …) and includes the area, the issue, the retrospective rationale, an Impact/Effort ranking, the evidence, a "Done when" check for knowing the fix is complete, and a ready-to-paste LLM prompt to fix it (with the "Done when" check appended, so the agent you paste it into knows when to stop).</p>
+
+    <p>Evidence is checked, not just printed. Before writing the review, Hindsight checks every citation against your files: the path must exist, the line must be in range, and a quoted excerpt must appear at the line it cites. On a re-run it also checks that every earlier finding has been classified. Citations that fail are corrected before the review is written, and any left unverified are marked in <code>inHindsight.json</code>.</p>
+
+    <p>Alongside it, Hindsight writes <code>inHindsight.json</code>: the same findings in machine-readable form, for scripts or coding agents that want to pick up a finding by ID ("implement H-003 from inHindsight.json") without parsing Markdown.</p>
+
+    <p>The JSON's shape is defined in the docstring of <code>hindsight/scripts/findings_schema.py</code>. A review document has <code>schema_version</code>, <code>status</code> (<code>complete</code>, or <code>needs_input</code> when a run stopped to ask for something), <code>root</code>, <code>goal</code>, <code>generated</code>, <code>summary</code>, and <code>findings</code>. Each finding has <code>id</code>, <code>area</code>, <code>title</code>, <code>issue</code>, <code>rationale</code>, <code>impact</code>, <code>effort</code>, <code>evidence</code> (strings like <code>path:42</code>, or <code>{path, line, quote}</code> objects), <code>prompt</code>, <code>done_when</code>, and, when a citation failed verification, <code>evidence_unverified</code>. Alongside the findings are <code>no_findings</code>, <code>gap_report</code>, <code>dependency_scorecard</code> (with its computed <code>health_score</code>), and <code>since_last_review</code>.</p>
+
+    <p>Those are the only files Hindsight writes; it never modifies your project's code directly. Run it again later in the same project and it will also report which of its previous findings you've since resolved, keeping each carried-forward finding's ID. Before writing a new review, it moves the previous <code>inHindsight.md</code>/<code>.json</code> into <code>hindsight-history/</code> with a timestamp, so earlier reviews are never lost. You may want to add <code>hindsight-history/</code> to your <code>.gitignore</code>.</p>
+
+    <h2>Decision matrix, gap report, and scorecard</h2>
+
+    <p>For the single most critical finding in each review, Hindsight also generates a weighted decision matrix: three or more distinct candidate solutions scored by Estimated Impact and Development Effort (1-5), rendered as a table directly beneath that finding — so the highest-leverage issue comes with options to weigh, not just one prescribed fix.</p>
+
+    <p>Hindsight also cross-references every Documentation Gaps finding against the actual code: it lists the specific public functions, classes, and interfaces missing a doc-comment (in whatever convention is idiomatic to that language) or a usage example in the primary docs, as a Cross-Reference Gap Report at the end of <code>inHindsight.md</code>.</p>
+
+    <p>Every review also includes a <strong>Dependency Health Scorecard</strong>, a quantitative view of architectural risk from third-party packages and internal coupling. It lists high-risk packages, circular imports between your modules, "volatile hub" modules (imported by many others, but full of TODO/FIXME markers or changed constantly), and calls to deprecated APIs. It also gives a Health Score computed by a fixed, visible formula. For Python and JavaScript/TypeScript, circular imports and volatile hubs come from a deterministic script, so that part of the score is reproducible; risky packages and deprecated APIs are identified by the model, so the score can vary between runs. Package risk is judged from local evidence only (manifests, lockfiles, the code itself), with no network calls. Anything that rests on the model's own knowledge is marked "unverified".</p>
+
+    <p class="next">Next: <a href="./unattended.html">Running unattended</a></p>
+
+  </div>
+</main>
+
+<footer class="site-footer">
+  <div class="shell">
+    <p>Hindsight: a retrospective architectural review skill for Claude Code, Codex CLI, Gemini CLI and GitHub Copilot.</p>
+    <p>© 2026 Tanay Sharma. <a href="https://github.com/tansharma/hindsight">Source on GitHub</a></p>
+  </div>
+</footer>
+
+</body>
+</html>
