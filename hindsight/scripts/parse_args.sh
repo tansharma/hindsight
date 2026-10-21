@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # T1 test script: validates the three Hindsight inputs (project_root, file_list,
-# user_goal) and echoes the confirmation object described in project.md / prompt.md.
+# user_goal) and echoes the scope confirmation object described in SKILL.md Step 1.
 #
 # Usage:
 #   scripts/parse_args.sh --root <path> --goal "<use case>" [--files "a.py,b.py,..."]
