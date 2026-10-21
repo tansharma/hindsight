@@ -17,6 +17,11 @@ Prints one JSON object to stdout:
       "unsupported_files": 4,          # listed files in other languages
       "modules": [{"path", "language", "imports": [internal paths],
                    "fan_in", "markers", "churn"}],
+      "deferred_imports": [{"path", "imports": [internal paths]}],
+                                       # Python imports inside a function or
+                                       # method body: real dependencies that
+                                       # count toward fan_in, but not edges
+                                       # for cycle detection
       "cycles": [["a.py", "b.py"]],    # each a set of mutually importing
                                        # modules (a strongly connected
                                        # component), sorted
@@ -26,6 +31,13 @@ Prints one JSON object to stdout:
       "lockfile_deprecations": [{"package", "version", "message"}],
       "parse_errors": ["path: reason"]
     }
+
+Imports that never run at import time are not graph edges: Python imports
+guarded by `if TYPE_CHECKING:` (or `typing.TYPE_CHECKING`; an `else:`
+branch still counts), and TypeScript type-only imports (`import type`,
+`export type`, or `import { type A, type B }` with every specifier
+type-only), which the compiler erases. These are the standard ways to
+break a cycle, so counting them would report cycles the code already broke.
 
 A volatile hub is a module imported by at least HUB_MIN_FAN_IN other
 modules that also shows a volatility signal: a TODO/FIXME/HACK/XXX/
@@ -131,16 +143,32 @@ def py_module_name(path):
     return ".".join(parts)
 
 
+def is_type_checking(test):
+    """True for `if TYPE_CHECKING:` and `if typing.TYPE_CHECKING:` tests."""
+    return ((isinstance(test, ast.Name) and test.id == "TYPE_CHECKING")
+            or (isinstance(test, ast.Attribute) and test.attr == "TYPE_CHECKING"))
+
+
 def python_imports(path, source):
-    """Yield (dotted_name, level) for each import; level > 0 is relative."""
+    """Yield (dotted_name, level, names, deferred) for each import that runs
+    at runtime; level > 0 is relative, deferred means it sits inside a
+    function body. TYPE_CHECKING-guarded imports are skipped."""
     tree = ast.parse(source, filename=path)
-    for node in ast.walk(tree):
+    stack = [(tree, False)]
+    while stack:
+        node, deferred = stack.pop()
         if isinstance(node, ast.Import):
             for alias in node.names:
-                yield alias.name, 0, None
+                yield alias.name, 0, None, deferred
         elif isinstance(node, ast.ImportFrom):
             names = [a.name for a in node.names if a.name != "*"]
-            yield node.module or "", node.level, names
+            yield node.module or "", node.level, names, deferred
+        if isinstance(node, ast.If) and is_type_checking(node.test):
+            children = node.orelse
+        else:
+            children = list(ast.iter_child_nodes(node))
+        inner = deferred or isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda))
+        stack.extend((child, inner) for child in children)
 
 
 class PythonResolver:
@@ -157,18 +185,36 @@ class PythonResolver:
 
     def lookup(self, dotted, importer):
         """Internal path for a dotted name (longest matching prefix), also
-        trying the importer's own directory (script-dir-on-sys.path)."""
+        trying the importer's own directory (script-dir-on-sys.path) and
+        then each ancestor directory (a nested project root, as in a
+        monorepo whose subproject imports its own top-level package)."""
         parts = dotted.split(".")
         here = posixpath.dirname(importer)
+        bases = []
+        while True:
+            bases.append(here)
+            if not here:
+                break
+            here = posixpath.dirname(here)
         for i in range(len(parts), 0, -1):
             name = ".".join(parts[:i])
             if name in self.by_name:
                 return self.by_name[name]
             rel = "/".join(parts[:i])
-            for candidate in (f"{rel}.py", f"{rel}/__init__.py"):
-                sibling = posixpath.join(here, candidate) if here else candidate
-                if sibling in self.files:
-                    return sibling
+            for base in bases:
+                for candidate in (f"{rel}.py", f"{rel}/__init__.py"):
+                    path = posixpath.join(base, candidate) if base else candidate
+                    if path in self.files:
+                        return path
+        return None
+
+    def nested_submodule(self, dotted, importer):
+        """A dotted name that is exactly a module under some ancestor of
+        the importer (no prefix fallback, unlike lookup)."""
+        hit = self.lookup(dotted, importer)
+        rel = dotted.replace(".", "/")
+        if hit and (hit.endswith(f"{rel}.py") or hit.endswith(f"{rel}/__init__.py")):
+            return hit
         return None
 
     def resolve(self, importer, dotted, level, names):
@@ -194,7 +240,7 @@ class PythonResolver:
         found = set()
         attribute_import = not names
         for n in names or []:
-            sub = self.by_name.get(f"{dotted}.{n}")
+            sub = self.by_name.get(f"{dotted}.{n}") or self.nested_submodule(f"{dotted}.{n}", importer)
             if sub:
                 found.add(sub)
             else:
@@ -210,10 +256,28 @@ class PythonResolver:
 
 # --- JavaScript / TypeScript --------------------------------------------------
 
+JS_TYPE_ONLY = re.compile(r"(?:import|export)\s+type\s+(?!from\b)")
+JS_NAMED_CLAUSE = re.compile(r"import\s*\{([^}]*)\}\s*from\b")
+
+
+def js_type_only(statement):
+    """True if an import/export statement is erased by the TypeScript
+    compiler: `import type ...`, `export type ...`, or a named import whose
+    every specifier is marked `type`."""
+    if JS_TYPE_ONLY.match(statement):
+        return True
+    m = JS_NAMED_CLAUSE.match(statement)
+    if m:
+        names = [n.strip() for n in m.group(1).split(",") if n.strip()]
+        return bool(names) and all(re.match(r"type\s+\w", n) for n in names)
+    return False
+
+
 def js_specifiers(source):
+    """Module specifiers imported at runtime (type-only imports excluded)."""
     source = JS_BLOCK_COMMENT.sub("", source)
     source = JS_LINE_COMMENT.sub(r"\1", source)
-    return JS_SPECIFIER.findall(source)
+    return [m.group(1) for m in JS_SPECIFIER.finditer(source) if not js_type_only(m.group(0))]
 
 
 def js_package(spec):
@@ -431,6 +495,7 @@ def analyze(root, paths):
     resolver = PythonResolver(py_files)
 
     graph = {p: set() for p in paths if language(p)}
+    deferred = {p: set() for p in graph}
     external = {}
     markers = {}
 
@@ -447,9 +512,10 @@ def analyze(root, paths):
             except (SyntaxError, ValueError) as e:
                 parse_errors.append(f"{path}: {e.__class__.__name__}: {e}")
                 continue
-            for dotted, level, names in imports:
+            for dotted, level, names, is_deferred in imports:
                 internal, packages = resolver.resolve(path, dotted, level, names)
-                graph[path].update(i for i in internal if i != path or level == 0)
+                targets = deferred[path] if is_deferred else graph[path]
+                targets.update(i for i in internal if i != path or level == 0)
                 for pkg in packages:
                     if pkg not in stdlib:
                         external.setdefault(pkg, set()).add(path)
@@ -466,8 +532,8 @@ def analyze(root, paths):
 
     churn = git_churn(root)
     fan_in = {p: 0 for p in graph}
-    for importer, targets in graph.items():
-        for t in targets:
+    for importer in graph:
+        for t in graph[importer] | deferred[importer]:
             if t != importer:
                 fan_in[t] += 1
 
@@ -488,6 +554,8 @@ def analyze(root, paths):
         "languages": dict(sorted(counts.items())),
         "unsupported_files": len(paths) - len(graph),
         "modules": modules,
+        "deferred_imports": [{"path": p, "imports": sorted(deferred[p] - graph[p] - {p})}
+                             for p in sorted(deferred) if deferred[p] - graph[p] - {p}],
         "cycles": strongly_connected(graph),
         "volatile_hubs": volatile_hubs(modules),
         "external_packages": {k: sorted(v) for k, v in sorted(external.items())},

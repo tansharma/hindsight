@@ -18,7 +18,7 @@ Hindsight is an advanced skill for experienced software engineers seeking deep a
 ## Integrating Hindsight into your workflow
 Hindsight is a portable Agent Skill. The folder `hindsight/` contains a `SKILL.md` along with a `scripts/` helper directory. This folder works, unmodified, in Claude Code, Codex CLI, Gemini CLI, and GitHub Copilot. Each discovers skills the same way, from a `skills/` directory: personal (applies to all your projects) or project-level (applies only inside one repo).
 
-The whole skill lives in the `hindsight/` folder at the root of this repo. To install it, copy that folder into the tool's `skills/` directory. Keep the folder name `hindsight` and keep `SKILL.md` plus `scripts/` together inside it.
+The whole skill lives in the `hindsight/` folder at the root of this repo. To install it, copy that folder into the tool's `skills/` directory. Keep the folder name `hindsight` and keep `SKILL.md` plus `scripts/` together inside it. Nothing else in the repo is needed to use the skill. `tests/` is only for developing the skill further (see [Running the tests](#running-the-tests-for-skill-developers)), so you can ignore or delete it.
 
 The commands below copy the folder *into* the `skills/` directory, so running the same command again updates an existing install in place. (Copying to `…/skills/hindsight` instead would nest a second `hindsight/` inside an existing install.) Files deleted from the skill in a newer version aren't removed by an update. To get an exact copy, delete the installed `hindsight` folder first.
 
@@ -164,7 +164,9 @@ HINDSIGHT_NONINTERACTIVE=1 claude -p '/hindsight review . against the goal "low-
 
 Whatever the mode, Hindsight treats the files it reviews as data. Instructions embedded in them are never followed or copied into the prompts it writes, and secret values never appear in its output.
 
-## Running the tests
+## Running the tests (for skill developers)
+
+You don't need this section, or the `tests/` directory, to install or use Hindsight. It's for anyone changing the skill itself.
 
 The helper scripts in `hindsight/scripts/` have a regression suite in `tests/` (Python standard library only, nothing to install). From the repo root:
 
@@ -173,6 +175,17 @@ python3 -m unittest discover -s tests -v
 ```
 
 `tests/` sits outside `hindsight/` on purpose, so it isn't copied when you install the skill.
+
+### Accuracy and consistency eval (opt-in, costs money)
+
+The unit tests cover the scripts; they can't tell you whether reviews are *right*. `tests/eval/` runs the installed skill headlessly on a small fixture project (`orders-svc`) with known planted issues (an architectural drift from the README's promise, a duplicated workaround, a stale doc claim, and an instruction aimed at AI reviewers), plus a fake secret. It then grades each `inHindsight.json` mechanically: which planted issues were found (matched by cited file and line), whether the secret or the injected command leaked, whether every area was addressed, and how much evidence the renderer couldn't verify. Across runs it shows how often each planted issue was found and which Impact/Effort bucket it landed in, which is a direct measure of consistency.
+
+```bash
+bash tests/eval/run.sh                          # prints the spending cap, runs nothing
+bash tests/eval/run.sh --yes --runs 2 --budget 1.00
+```
+
+Each run is capped with `claude --max-budget-usd`, so the most it can cost is runs × budget; a full review cost about $0.65 in earlier headless checks. It evaluates the copy in `~/.claude/skills/hindsight` (it warns when that differs from this repo's `hindsight/`), needs the `claude` CLI, and never runs as part of `python3 -m unittest discover -s tests`. The fake secret and the injected comment are written into a temporary copy at run time, so neither is committed here. The grader works on its own too: `python3 tests/eval/grade.py --expected tests/eval/fixtures/orders-svc.expected.json <inHindsight.json>...`.
 
 ## Tasklog
 
@@ -192,3 +205,4 @@ python3 -m unittest discover -s tests -v
 | 12 | Agentic mode and safety. Non-interactive mode with needs-input status files and a fixed result line; deterministic file listing; secret-file skipping; untrusted-content guardrails; explicit "no findings" per area. | Done | /scripts/list_files.sh, /scripts/common.sh, SKILL.md Execution Modes |
 | 13 | Dependency Health Scorecarding. Risky packages, circular imports, volatile hub modules, and deprecated API use, with a formula-computed Health Score; local evidence only. | Done | /scripts/import_graph.py, SKILL.md Steps 2-3 & 5 |
 | 14 | Claim verification. Evidence paths, lines, and verbatim quotes checked against the project; re-run coverage checked against the previous review; `--check` validates without writing, so corrections don't renumber findings. | Done | /scripts/verify_findings.py, /scripts/render_output.py |
+| 15 | Review accuracy. Import graph ignores TYPE_CHECKING and type-only imports and reports deferred imports; one Impact/Effort rubric shared by SKILL.md and the P-Prompt; opt-in eval harness with planted-issue fixture and a deterministic grader. | Done | /scripts/import_graph.py, SKILL.md Step 3, tests/eval/ |

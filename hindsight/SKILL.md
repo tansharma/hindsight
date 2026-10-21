@@ -216,7 +216,10 @@ intended" in place before "what actually happened" can color it.
    ```
 
    For Python and JavaScript/TypeScript files it reports internal imports,
-   circular-import sets (`cycles`), heavily imported modules with
+   circular-import sets (`cycles`; imports that never run at import time —
+   `if TYPE_CHECKING:` blocks and TypeScript type-only imports — are not
+   edges, and Python imports inside function bodies are listed separately
+   as `deferred_imports`), heavily imported modules with
    volatility signals (`volatile_hubs`: TODO/FIXME markers in comments, or
    high git churn), imported vs declared third-party packages, and
    deprecations recorded in `package-lock.json`. It reads only local files
@@ -354,7 +357,24 @@ Each finding's fields:
   rationale that could have been written on day one belongs to a linter,
   not here.
 - **`impact`** / **`effort`** — each exactly `"High"` or `"Low"`; together
-  they place the finding in one of the four Impact/Effort buckets.
+  they place the finding in one of the four Impact/Effort buckets, using
+  this rubric (the same one the decision matrix's 1-5 scores use):
+  - Impact High: resolving it directly advances or unblocks the user's
+    stated goal, or prevents incorrect results, data loss, or a security
+    exposure. Impact Low: it improves maintainability or clarity without
+    changing what the goal depends on.
+  - Effort Low: about a day of work or less, a handful of files, and no
+    change to a public interface or data contract. Effort High:
+    cross-cutting, changes a public interface or contract, needs a
+    migration, or needs new infrastructure.
+  - On the boundary, choose the lower impact and the higher effort, and
+    say why in the rationale.
+  - Decision-matrix scores (1-5): for impact, 1 is marginal, 3 clearly
+    advances the goal in one part of the system, and 5 transforms the goal
+    for the whole system; for effort, 1 is trivial (under an hour, one
+    file), 3 is a few days across several files, and 5 is a major
+    undertaking (weeks, or an architecture or contract change); 2 and 4
+    lie between their neighbours.
 - **`evidence`** — where the problem shows, relative to `project_root`:
   a string (`"path"`, `"path:42"`, `"path:42-50"`) or an object
   `{"path", "line", "quote"}` whose `quote` is a short excerpt copied
@@ -395,9 +415,9 @@ engineer wants surfaced, not decided for them by the review.
    candidate needs:
    - `solution` — a short name for the approach.
    - `impact` — estimated impact, 1 (marginal) to 5 (transformative),
-     scored against `user_goal`.
+     scored against `user_goal` with the rubric's 1-5 anchors (Step 3).
    - `effort` — estimated development effort, 1 (trivial) to 5 (major
-     undertaking).
+     undertaking), with the same anchors.
    - `argument` — one or two sentences on why this candidate scores as it
      does, and its main risk or trade-off.
 3. **Attach the candidates to that finding** as a `decision_matrix` array
@@ -688,7 +708,9 @@ bash "$S/aggregate_context.sh" --root <path> --files-from files.txt \
   counts.
 - `import_graph.py` — Step 2's dependency analysis for Python and JS/TS:
   internal import graph (Python via `ast`; resolves package, `src/`-layout,
-  relative, and same-directory imports), circular-import sets (Tarjan's
+  relative, same-directory, and nested-project-root imports; skips `TYPE_CHECKING`-guarded and
+  TypeScript type-only imports), function-local `deferred_imports` (they
+  count toward fan-in but not toward cycles), circular-import sets (Tarjan's
   algorithm), volatile hubs (fan-in ≥ 3 plus a comment marker or top-quartile
   git churn ≥ 5), imported external packages (stdlib and Node built-ins
   excluded), declared packages from `package.json` / `requirements*.txt` /
