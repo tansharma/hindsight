@@ -1,47 +1,130 @@
 # Hindsight Skill
 
-Hindsight is an advanced skill for experienced software engineers seeking a deep architectural reviews. Instead of simple linting or isolated file checks, Hindsight analyzes your entire project structure and documentation against a defined functional goal.
+Hindsight is an advanced skill for experienced software engineers seeking deep architectural reviews. Instead of simple linting or isolated file checks, Hindsight analyzes your entire project structure and documentation against a defined functional goal.
 
-**How it Works:** You define the primary purpose of your service (e.g., "This API handles user authentication"). Hindsight ingests up to 300 files/docs, cross-references the code for technical debt, proposes architectural improvements, and ranks these findings by Impact/Effort.
+**How it Works:** You define the primary purpose of your service (e.g., "This API handles user authentication"). Hindsight ingests up to 300 files/docs (a guideline you can override), reads the documentation first to learn what was intended, then judges the code against that intent and your goal. It proposes architectural improvements and ranks the findings by Impact/Effort.
 
-**Current Scope:** Initial implementation is a CLI skill that generates a structured `inHindsight.md` file containing actionable recommendations grouped by severity (Impact/Effort). This version requires explicit user goal input to operate.
+**Current Scope:** Hindsight is an Agent Skill for Claude Code, Codex CLI, Gemini CLI, and GitHub Copilot. Each review produces `inHindsight.md` for people and `inHindsight.json` for scripts and agents. Each finding comes with a ready-to-paste fix prompt and a "Done when" check. The review also includes a Dependency Health Scorecard and tracks which earlier findings you've resolved. It requires an explicit goal, and can run unattended in CI or under another agent.
 
-**Note** Project.md is there to provide project context only. `build_promt.sh` does a `cat` on the whole file and any headings, structure gets dropped verbatim into the Project Context section of the prompt. The skill will still run without the Project.md file, but the LLM would need to infer project intent purely from the specified goal and aggregated file contents. **TL;DR** Add a Project.md to your repo with 3 defined sections, Idea, Ambition, Goal. 
+**Note** Project.md is there to provide project context only. When the scripted pipeline runs, `build_prompt.sh` does a `cat` on the whole file, and its headings and structure are dropped verbatim into the Project Context section of the prompt. It accepts `project.md`, `Project.md`, or `PROJECT.md`. The skill still runs without the file, but the model then has to infer project intent purely from the stated goal and the files it reads. **TL;DR** Add a Project.md to your repo with 3 defined sections: Idea, Ambition, Goal.
+
+## Requirements
+
+- One of the supported tools below, using whichever model it is configured with.
+- `python3` 3.9 or newer and `bash` (3.2, the macOS default, is fine). They run the helper scripts in `hindsight/scripts/`. Nothing needs to be installed beyond the standard library.
+- `git` (optional). In a git repository, Hindsight respects `.gitignore` when listing files and uses commit history to spot frequently changed modules.
+- **Windows:** the `.sh` helpers need a bash, such as Git Bash or WSL. The Python helpers run natively.
 
 ## Integrating Hindsight into your workflow
-Hindsight is a portable Agent Skill. The folder `hindsight/` contains a `SKILL.md` along with a `scripts/` helper directory. This folder works, unmodified, in Claude Code, Codex CLI, and Gemini CLI — as each of these tools discovers skills the same way and picks them up from a `skills/` directory, either personal/global (applies to all your projects) or at project-level (applies only inside your chosen repo). GitHub Copilot has no equivalent skills-discovery mechanism, so it's wired up differently — see the Copilot section below.
+Hindsight is a portable Agent Skill. The folder `hindsight/` contains a `SKILL.md` along with a `scripts/` helper directory. This folder works, unmodified, in Claude Code, Codex CLI, Gemini CLI, and GitHub Copilot. Each discovers skills the same way, from a `skills/` directory: personal (applies to all your projects) or project-level (applies only inside one repo).
 
-The whole skill lives in the `hindsight/` folder at the root of this repo. To install it, copy that folder. Keep the folder name `hindsight` and keep `SKILL.md` plus `scripts/` together inside it.
+The whole skill lives in the `hindsight/` folder at the root of this repo. To install it, copy that folder into the tool's `skills/` directory. Keep the folder name `hindsight` and keep `SKILL.md` plus `scripts/` together inside it.
+
+The commands below copy the folder *into* the `skills/` directory, so running the same command again updates an existing install in place. (Copying to `…/skills/hindsight` instead would nest a second `hindsight/` inside an existing install.) Files deleted from the skill in a newer version aren't removed by an update. To get an exact copy, delete the installed `hindsight` folder first.
 
 ### Claude Code
 
-- **Global/Personal**   copy to `~/.claude/skills/hindsight/`
-- **Project Level**     copy to `.claude/skills/hindsight/` at the repo root
+- **Personal** (every project): `~/.claude/skills/hindsight/`
+- **Project-level** (this repo only): `.claude/skills/hindsight/` at the repo root
 
-No restart needed. Claude Code picks up skills added under `~/.claude/skills/` or `.claude/skills/` within the current session. Invoke it by typing `/hindsight` in Claude Code, or just describe the task ("do a hindsight review of this project") and Claude will trigger the skill from its description.
+*macOS / Linux:*
+
+```bash
+mkdir -p ~/.claude/skills
+cp -R hindsight ~/.claude/skills/
+```
+
+*Windows (PowerShell):*
+
+```powershell
+New-Item -ItemType Directory -Force -Path "$env:USERPROFILE\.claude\skills" | Out-Null
+Copy-Item -Recurse -Force hindsight "$env:USERPROFILE\.claude\skills"
+```
+
+For a project-level install, use `.claude/skills` (`.claude\skills` on Windows) at the repo root as the destination instead.
+
+No restart needed. Claude Code picks up skills added under `~/.claude/skills/` (`%USERPROFILE%\.claude\skills\` on Windows) or `.claude/skills/` within the current session. Invoke it by typing `/hindsight` in Claude Code, or just describe the task ("do a hindsight review of this project") and Claude will trigger the skill from its description.
 
 ### Codex CLI
 
-- **Global/Personal**: copy to `~/.codex/skills/hindsight/`
-- **Project Level**:   copy to `.codex/skills/hindsight/` at the repo root
+- **Personal**: `~/.codex/skills/hindsight/`
+- **Project-level**: `.codex/skills/hindsight/` at the repo root
 
-Codex scans both directories at session startup and loads skills automatically based on their description. Invoke with `/hindsight`, or
-describe the task in prose.
+*macOS / Linux:*
+
+```bash
+mkdir -p ~/.codex/skills
+cp -R hindsight ~/.codex/skills/
+```
+
+*Windows (PowerShell):*
+
+```powershell
+New-Item -ItemType Directory -Force -Path "$env:USERPROFILE\.codex\skills" | Out-Null
+Copy-Item -Recurse -Force hindsight "$env:USERPROFILE\.codex\skills"
+```
+
+For a project-level install, use `.codex/skills` (`.codex\skills` on Windows) at the repo root instead.
+
+Codex scans both directories at session startup and loads skills automatically based on their description. Invoke with `/hindsight`, or describe the task in prose.
 
 ### Gemini CLI
 
-- **Global/Personal**: copy to `~/.gemini/skills/hindsight/` (alias: `~/.agents/skills/hindsight/`)
-- **Project-only**:    copy to `.gemini/skills/hindsight/` at the repo root (alias: `.agents/skills/hindsight/`)
+- **Personal**: `~/.gemini/skills/hindsight/` (alias: `~/.agents/skills/hindsight/`)
+- **Project-level**: `.gemini/skills/hindsight/` at the repo root (alias: `.agents/skills/hindsight/`)
+
+*macOS / Linux:*
+
+```bash
+mkdir -p ~/.gemini/skills
+cp -R hindsight ~/.gemini/skills/
+```
+
+*Windows (PowerShell):*
+
+```powershell
+New-Item -ItemType Directory -Force -Path "$env:USERPROFILE\.gemini\skills" | Out-Null
+Copy-Item -Recurse -Force hindsight "$env:USERPROFILE\.gemini\skills"
+```
+
+The `~/.agents/skills/` alias maps to `%USERPROFILE%\.agents\skills\` on Windows; use whichever your Gemini CLI install already has set up. For a project-level install, use `.gemini/skills` (or `.agents/skills`) at the repo root instead.
 
 Confirm it's discovered with `/skills list`, then invoke with `/hindsight` or by describing the task.
 
-### Using the skill (Claude Code, Codex, Gemini)
+### GitHub Copilot
 
-However you invoke it, Hindsight needs three inputs up front to run
+Copilot supports Agent Skills in VS Code agent mode, the Copilot CLI, the Copilot app, and the Copilot cloud agent. Install Hindsight like any other skill:
+
+- **Personal**: `~/.copilot/skills/hindsight/` (alias: `~/.agents/skills/hindsight/`; VS Code also reads `~/.claude/skills/`)
+- **Project-level**: `.github/skills/hindsight/` at the repo root (aliases: `.agents/skills/hindsight/`, `.claude/skills/hindsight/`)
+
+*macOS / Linux:*
+
+```bash
+mkdir -p ~/.copilot/skills
+cp -R hindsight ~/.copilot/skills/
+```
+
+*Windows (PowerShell):*
+
+```powershell
+New-Item -ItemType Directory -Force -Path "$env:USERPROFILE\.copilot\skills" | Out-Null
+Copy-Item -Recurse -Force hindsight "$env:USERPROFILE\.copilot\skills"
+```
+
+For a project-level install, use `.github/skills` (`.github\skills` on Windows) at the repo root instead. A project-level `.claude/skills/hindsight/` install is shared by Claude Code and Copilot.
+
+Copilot matches your request against the skill's description, so "do a hindsight review of this project against goal X" loads it. In VS Code it is also available as the `/hindsight` slash command.
+
+*Older Copilot versions without Agent Skills:* point Copilot at the skill through repository custom instructions instead. Add a line like "For architectural reviews, follow `hindsight/SKILL.md` and its `hindsight/scripts/` helpers" to `.github/copilot-instructions.md`, keeping the `hindsight/` folder in the repo.
+
+### Using the skill (Claude Code, Codex, Gemini, Copilot)
+
+However you invoke it, Hindsight needs three inputs up front to run:
 
 1. **Project root** — The directory to review.
-2. **File list**    — Which files to scan (defaults to enumerating the project root, capped at ~300 files as a guideline).
-3. **User goal**    — A defined purpose or use case for the project (e.g. "this service handles payment processing"). This is mandatory, Hindsight will stop and ask for it if you omitted. If the goal you give is too bare to anchor a review (e.g. "make it faster"), Hindsight will instead propose three concrete hypotheses for what you likely mean, each with a short checklist of the files/modules that matter for it, and ask you to pick one before continuing.
+2. **File list**    — Which files to scan. If you name only a directory, Hindsight lists it the same way every time: it respects `.gitignore` and skips dependency and build folders, binaries, secret-looking files such as `.env`, and its own earlier output. The cap is ~300 files, as a guideline; it asks before going over it.
+3. **User goal**    — A defined purpose or use case for the project (e.g. "this service handles payment processing"). This is mandatory: Hindsight will stop and ask for it if you omit it. If the goal you give is too bare to anchor a review (e.g. "make it faster"), Hindsight will instead propose three concrete hypotheses for what you likely mean, each with a short checklist of the files/modules that matter for it, and ask you to pick one before continuing.
 
 
 Example invocation:
@@ -50,7 +133,7 @@ Example invocation:
 /hindsight review this repo against the goal "low-latency read path for a payment API", scanning everything under src/
 ```
 
-Hindsight writes its findings to `inHindsight.md` at the project root. Each finding has a stable ID (`H-001`, `H-002`, …) and includes the area, the issue, the retrospective rationale, an Impact/Effort ranking, the evidence, a "Done when" check for knowing the fix is complete, and a ready-to-paste LLM prompt to fix it (with the "Done when" check appended, so the agent you paste it into knows when to stop).
+Hindsight writes its findings to `inHindsight.md` at the project root. Findings are grouped by Impact/Effort, then by area (Architectural Patterns, Code Quality, Documentation Gaps). Every area is addressed: one with genuinely nothing to report is listed under "No Findings" with the reason, rather than padded with a nit. Each finding has a stable ID (`H-001`, `H-002`, …) and includes the area, the issue, the retrospective rationale, an Impact/Effort ranking, the evidence, a "Done when" check for knowing the fix is complete, and a ready-to-paste LLM prompt to fix it (with the "Done when" check appended, so the agent you paste it into knows when to stop).
 
 Alongside it, Hindsight writes `inHindsight.json`: the same findings in machine-readable form, for scripts or coding agents that want to pick up a finding by ID ("implement H-003 from inHindsight.json") without parsing Markdown.
 
