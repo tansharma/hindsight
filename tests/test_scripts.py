@@ -927,6 +927,172 @@ class BuildPromptTest(unittest.TestCase):
             self.assertIn("no project.md found", result.stdout)
 
 
+class ClaimVerificationTest(unittest.TestCase):
+    """render_output.py checks evidence and re-run coverage against disk."""
+
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.root = Path(tmp.name)
+        (self.root / "a.py").write_text("x = 1\ny  =  2\n")
+        (self.root / "long.py").write_text("".join(f"line_{i} = {i}\n" for i in range(1, 21)))
+
+    def render_doc(self, doc, *args):
+        return run("render_output.py", "--root", str(self.root), "--goal", "g", *args,
+                   stdin=json.dumps(doc))
+
+    def sidecar(self):
+        return json.loads((self.root / "inHindsight.json").read_text())
+
+    def evidence_warnings(self, evidence):
+        result = self.render_doc({"findings": [json_finding(evidence=evidence)]})
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return [l for l in result.stderr.splitlines() if "evidence" in l]
+
+    def test_missing_evidence_path_warns_and_is_recorded(self):
+        warnings = self.evidence_warnings(["nope/missing.py:9999"])
+        self.assertEqual(warnings, ["Warning: H-001: evidence 'nope/missing.py:9999' not found under root"])
+        self.assertEqual(self.sidecar()["findings"][0]["evidence_unverified"], ["nope/missing.py:9999"])
+
+    def test_line_out_of_range_warns(self):
+        warnings = self.evidence_warnings(["a.py:5"])
+        self.assertEqual(warnings, ["Warning: H-001: evidence 'a.py:5' line out of range (file has 2 lines)"])
+
+    def test_valid_evidence_does_not_warn(self):
+        self.assertEqual(self.evidence_warnings(["a.py", "a.py:2", "a.py:1-2", "README section notes"]), [])
+        self.assertNotIn("evidence_unverified", self.sidecar()["findings"][0])
+
+    def test_evidence_outside_root_warns(self):
+        outside = tempfile.NamedTemporaryFile(suffix=".py", delete=False)
+        self.addCleanup(os.unlink, outside.name)
+        warnings = self.evidence_warnings([outside.name])
+        self.assertEqual(len(warnings), 1)
+        self.assertIn("not found under root", warnings[0])
+
+    def test_quote_matched_at_cited_line_whitespace_insensitive(self):
+        evidence = [{"path": "a.py", "line": "2", "quote": "y = 2"}]
+        self.assertEqual(self.evidence_warnings(evidence), [])
+        md = (self.root / "inHindsight.md").read_text()
+        self.assertIn("- **Evidence:** `a.py:2` — `y = 2`", md)
+        self.assertEqual(self.sidecar()["findings"][0]["evidence"], evidence)
+
+    def test_quote_away_from_cited_line_warns(self):
+        warnings = self.evidence_warnings([{"path": "long.py", "line": "1", "quote": "line_15 = 15"}])
+        self.assertEqual(warnings, ["Warning: H-001: evidence 'long.py:1' quote found near line 15, not at the cited line"])
+
+    def test_quote_not_in_file_warns(self):
+        warnings = self.evidence_warnings([{"path": "a.py", "quote": "z = 3"}])
+        self.assertEqual(warnings, ["Warning: H-001: evidence 'a.py' quote not found in a.py"])
+
+    def test_quote_wrapping_onto_next_line_matches_without_line(self):
+        self.assertEqual(self.evidence_warnings([{"path": "a.py", "quote": "x = 1 y = 2"}]), [])
+
+    def test_quote_with_backticks_renders_in_wider_span(self):
+        (self.root / "b.md").write_text("run `make` first\n")
+        self.evidence_warnings([{"path": "b.md", "line": "1", "quote": "run `make` first"}])
+        self.assertIn("`b.md:1` — ``run `make` first``", (self.root / "inHindsight.md").read_text())
+
+    def first_run(self):
+        self.render_doc({"findings": [json_finding(title="a"), json_finding(title="b")]})
+
+    def coverage_warnings(self, doc):
+        result = self.render_doc(doc)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return [l for l in result.stderr.splitlines() if "since_last_review" in l or "carried forward" in l]
+
+    def test_rerun_fully_accounted_does_not_warn(self):
+        self.first_run()
+        doc = {"findings": [json_finding(id="H-002")], "since_last_review": [
+            {"id": "H-001", "status": "resolved"}, {"id": "H-002", "status": "unresolved"}]}
+        self.assertEqual(self.coverage_warnings(doc), [])
+
+    def test_rerun_with_unclassified_previous_finding_warns(self):
+        self.first_run()
+        doc = {"findings": [json_finding()], "since_last_review": [{"id": "H-001", "status": "resolved"}]}
+        self.assertEqual(self.coverage_warnings(doc),
+                         ["Warning: since_last_review does not classify previous finding H-002"])
+
+    def test_unresolved_finding_not_carried_forward_warns(self):
+        self.first_run()
+        doc = {"findings": [json_finding()], "since_last_review": [
+            {"id": "H-001", "status": "resolved"}, {"id": "H-002", "status": "Partially resolved"}]}
+        self.assertEqual(self.coverage_warnings(doc),
+                         ["Warning: H-002 is marked partially resolved but was not carried forward under its id"])
+
+    def test_unknown_since_last_review_id_warns(self):
+        self.first_run()
+        doc = {"findings": [json_finding(id="H-002")], "since_last_review": [
+            {"id": "H-001", "status": "resolved"}, {"id": "H-002", "status": "unresolved"},
+            {"id": "H-009", "status": "resolved"}]}
+        self.assertEqual(self.coverage_warnings(doc),
+                         ["Warning: since_last_review entry H-009 was not a finding in the previous review"])
+
+    def test_rerun_without_since_last_review_warns(self):
+        self.first_run()
+        warnings = self.coverage_warnings({"findings": [json_finding()]})
+        self.assertEqual(len(warnings), 1)
+        self.assertIn("previous review has 2 finding(s) but since_last_review is empty", warnings[0])
+
+    def test_coverage_checked_against_review_before_needs_input_run(self):
+        self.first_run()
+        run("render_output.py", "--root", str(self.root), stdin=json.dumps({"status": "needs_input", "missing": ["goal"]}))
+        doc = {"findings": [json_finding()], "since_last_review": [{"id": "H-001", "status": "resolved"}]}
+        self.assertEqual(self.coverage_warnings(doc),
+                         ["Warning: since_last_review does not classify previous finding H-002"])
+
+
+class CheckModeTest(unittest.TestCase):
+    """render_output.py --check validates without writing or archiving."""
+
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.root = Path(tmp.name)
+
+    def clean_doc(self):
+        return {"findings": [json_finding(area=a) for a in
+                             ("Architectural Patterns", "Code Quality", "Documentation Gaps")],
+                "dependency_scorecard": {}}
+
+    def render_doc(self, doc, *args):
+        return run("render_output.py", "--root", str(self.root), "--goal", "g", *args,
+                   stdin=json.dumps(doc))
+
+    def test_clean_document_exits_0_and_writes_nothing(self):
+        result = self.render_doc(self.clean_doc(), "--check")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("check: 3 finding(s), 0 warning(s); nothing written.", result.stderr)
+        self.assertEqual(list(self.root.iterdir()), [])
+
+    def test_warnings_exit_2_and_write_nothing(self):
+        result = self.render_doc({"findings": [json_finding()]}, "--check")
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("Architectural Patterns is not addressed", result.stderr)
+        self.assertEqual(list(self.root.iterdir()), [])
+
+    def test_check_then_render_keeps_ids_from_h001(self):
+        self.render_doc({"findings": [json_finding()]}, "--check")
+        self.render_doc(self.clean_doc())
+        doc = json.loads((self.root / "inHindsight.json").read_text())
+        self.assertEqual([f["id"] for f in doc["findings"]], ["H-001", "H-002", "H-003"])
+        self.assertFalse((self.root / "hindsight-history").exists())
+
+    def test_check_does_not_archive_existing_review(self):
+        self.render_doc(self.clean_doc())
+        self.render_doc(self.clean_doc(), "--check")
+        self.assertFalse((self.root / "hindsight-history").exists())
+
+    def test_hard_errors_still_exit_1(self):
+        doc = {"findings": [json_finding(decision_matrix=matrix(3)), json_finding(decision_matrix=matrix(3))]}
+        self.assertEqual(self.render_doc(doc, "--check").returncode, 1)
+
+    def test_needs_input_check_writes_nothing(self):
+        result = run("render_output.py", "--root", str(self.root), "--check",
+                     stdin=json.dumps({"status": "needs_input", "missing": ["goal"]}))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(list(self.root.iterdir()), [])
+
+
 class DecisionMatrixTest(unittest.TestCase):
     def candidates(self, n):
         return [{"solution": f"Option {i} | piped", "impact": 3, "effort": 2,

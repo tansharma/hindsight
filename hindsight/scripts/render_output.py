@@ -8,6 +8,7 @@ Usage:
       scripts/render_output.py --root <path> --goal "<use case>"
     # or
     scripts/render_output.py [--root <path>] [--goal "<use case>"] findings.json
+    scripts/render_output.py --check ... findings.json   # validate only
 
 Input is a findings document, a bare array of findings, or a needs-input
 document ("status": "needs_input" — rendered as a short status page with the
@@ -27,14 +28,28 @@ should keep their old id in the input.
 Each of the three areas should be addressed by at least one finding or a
 "no_findings" entry; an unaddressed area is reported as a warning.
 
+Claims are checked against the project (verify_findings.py): evidence
+paths must exist under root, cited lines must be in range, and evidence
+quotes must appear at the cited lines; on a re-run, since_last_review must
+classify every previous finding and unresolved/partial ones must be carried
+forward under their id. Problems are warnings; unresolvable evidence is
+also listed per finding as "evidence_unverified" in the JSON sidecar.
+
+--check runs every check (including id assignment against the previous
+review) and prints the warnings, but writes and archives nothing. Run it
+until it is clean, then render once: each real render archives the
+previous output and reserves its ids, so rendering a draft and then a
+corrected version would renumber the findings.
+
 This step is rendering, not analysis or re-judging — every usable finding in
 the input appears in the output exactly once, grouped and formatted, with no
 findings added or reworded. The rendered markdown is also printed to stdout.
 
 Exit codes:
-    0  inHindsight.md and inHindsight.json written
+    0  inHindsight.md and inHindsight.json written (with --check: no warnings)
     1  no input, invalid JSON, no usable findings, missing root/goal, or more
        than one finding carrying a decision_matrix
+    2  --check only: the document is renderable but has warnings
 """
 
 import argparse
@@ -56,6 +71,7 @@ from findings_schema import (  # noqa: E402
     rank_label,
 )
 import render_decision_matrix  # noqa: E402
+import verify_findings  # noqa: E402
 
 BUCKET_ICONS = {
     ("High", "Low"): "⚡",
@@ -84,6 +100,23 @@ def code_fence(content):
 def prompt_block(prompt):
     fence = code_fence(prompt)
     return [f"{fence}text", prompt, fence]
+
+
+def inline_code(text):
+    """A backtick code span that survives backticks inside text."""
+    longest = max((len(run) for run in re.findall(r"`+", text)), default=0)
+    ticks = "`" * (longest + 1)
+    pad = " " if text.startswith("`") or text.endswith("`") else ""
+    return f"{ticks}{pad}{text}{pad}{ticks}"
+
+
+def evidence_text(e):
+    """`path:line`, followed by the quoted excerpt for evidence objects."""
+    if isinstance(e, dict):
+        location = f"{e['path']}:{e['line']}" if e.get("line") else e["path"]
+        quote = " ".join(e["quote"].split()) if e.get("quote") else ""
+        return inline_code(location) + (f" — {inline_code(quote)}" if quote else "")
+    return inline_code(e)
 
 
 def table_cell(value):
@@ -120,7 +153,7 @@ def render_finding(f, warnings):
     if f.get("impact"):
         lines.append(f"- **Impact/Effort:** {rank_label(f['impact'], f['effort'])}")
     if f["evidence"]:
-        lines.append("- **Evidence:** " + ", ".join(f"`{e}`" for e in f["evidence"]))
+        lines.append("- **Evidence:** " + ", ".join(evidence_text(e) for e in f["evidence"]))
     lines.append(f"- **Done when:** {f['done_when']}")
     lines.append("")
     lines.append("**LLM Action Prompt**")
@@ -394,6 +427,8 @@ def main():
     parser.add_argument("--goal")
     parser.add_argument("--out")
     parser.add_argument("--json-out")
+    parser.add_argument("--check", action="store_true",
+                        help="validate and print warnings; write nothing")
     args = parser.parse_args()
 
     if args.findings_file:
@@ -437,6 +472,8 @@ def main():
     history_dir = os.path.join(os.path.dirname(os.path.abspath(out_path)), HISTORY_DIR)
 
     if doc["status"] == NEEDS_INPUT:
+        if args.check:
+            return check_result(warnings, f"needs-input document (missing: {', '.join(doc['missing'])})")
         doc["generated"] = date.today().isoformat()
         rendered = render_needs_input(doc)
         archived = write_outputs(doc, rendered, out_path, json_path, history_dir)
@@ -460,14 +497,27 @@ def main():
         return 1
 
     check_area_coverage(doc, warnings)
+    previous = verify_findings.previous_review(json_path, history_dir)
     warnings += assign_ids(doc["findings"], previous_ids(json_path, history_dir))
+    verify_findings.verify_evidence(doc, warnings)
+    verify_findings.verify_rerun_coverage(doc, previous, warnings)
     doc["generated"] = date.today().isoformat()
     rendered = render(doc, warnings)
+    if args.check:
+        return check_result(warnings, f"{len(doc['findings'])} finding(s)")
 
     archived = write_outputs(doc, rendered, out_path, json_path, history_dir)
     report(warnings, rendered, archived)
     print(f"Wrote {len(doc['findings'])} finding(s) to {out_path} and {json_path}.", file=sys.stderr)
     return 0
+
+
+def check_result(warnings, what):
+    """--check: report warnings and exit 0 (clean) or 2, writing nothing."""
+    for w in warnings:
+        print(f"Warning: {w}", file=sys.stderr)
+    print(f"check: {what}, {len(warnings)} warning(s); nothing written.", file=sys.stderr)
+    return 2 if warnings else 0
 
 
 def write_outputs(doc, rendered, out_path, json_path, history_dir):

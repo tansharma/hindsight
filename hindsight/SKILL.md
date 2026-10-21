@@ -320,7 +320,8 @@ to the script:
       "rationale": "...",
       "impact": "High | Low",
       "effort": "High | Low",
-      "evidence": ["path/to/file.ext:42"],
+      "evidence": ["path/to/file.ext:42",
+                   {"path": "path/to/other.ext", "line": "10-12", "quote": "<verbatim excerpt>"}],
       "prompt": "...",
       "done_when": "..."
     }
@@ -354,9 +355,14 @@ Each finding's fields:
   not here.
 - **`impact`** / **`effort`** — each exactly `"High"` or `"Low"`; together
   they place the finding in one of the four Impact/Effort buckets.
-- **`evidence`** — the file paths (with line numbers where useful) that
-  show the problem. Optional, but include it whenever the issue points at
-  specific code.
+- **`evidence`** — where the problem shows, relative to `project_root`:
+  a string (`"path"`, `"path:42"`, `"path:42-50"`) or an object
+  `{"path", "line", "quote"}` whose `quote` is a short excerpt copied
+  verbatim from the cited lines. Prefer the quoted form for the claims a
+  finding rests on: the renderer checks that every path exists, every line
+  is in range, and every quote appears at its cited line, and flags any
+  that don't (Step 5). Optional, but include it whenever the issue points
+  at specific code. Never quote a secret value.
 - **`prompt`** — a self-contained prompt the user can paste into any coding
   agent to implement the fix. It must name the specific files, describe the
   current state, state the desired end state, and restate the relevant
@@ -428,19 +434,40 @@ heredoc (not `echo '...'`, which breaks as soon as a field contains an
 apostrophe). `<skill-dir>` is the directory this SKILL.md lives in — see
 "Deterministic Helper Scripts" below:
 
+**First validate, then render once.** Run the renderer with `--check`: it
+runs every check and prints the warnings, but writes and archives nothing.
+
 ```bash
-python3 "<skill-dir>/scripts/render_output.py" --root "<project_root>" --goal "<user_goal>" <<'FINDINGS'
+python3 "<skill-dir>/scripts/render_output.py" --check --root "<project_root>" --goal "<user_goal>" <<'FINDINGS'
 <findings document JSON>
 FINDINGS
 ```
+
+It exits 0 when clean, 2 when there are warnings, and 1 when the document
+can't be rendered at all. Warnings to fix before rendering:
+
+- **dropped findings / skipped matrix / unaddressed area** — the document
+  is incomplete; fix it.
+- **evidence … not found under root / line out of range / quote not
+  found / quote found near line N** — a citation doesn't match the code.
+  Re-open the file and correct the path, line, or quote; if the claim
+  doesn't survive that check, revise or drop the finding.
+- **since_last_review … / not carried forward** — a re-run doesn't
+  account for the previous review (Step 6); fix the classification.
+
+Repeat until `--check` exits 0, or until the remaining warnings are
+deliberate and you tell the user why. Then run the same command without
+`--check`. Rendering drafts for real instead would renumber the
+findings, because each real render archives the previous output and
+reserves its ids.
 
 It writes `<project_root>/inHindsight.md` (for people) and
 `<project_root>/inHindsight.json` (the normalized document with every id
 assigned — for agents, and for the next re-run). If either file already
 exists, both are first moved into `<project_root>/hindsight-history/`
-with a timestamp prefix, so no earlier review is lost. Read its stderr:
-dropped findings, skipped matrices, and reassigned ids are reported there —
-fix the document and re-run rather than accepting a lossy render.
+with a timestamp prefix, so no earlier review is lost. Any evidence
+still unverified is listed per finding as `evidence_unverified` in the
+JSON.
 
 This step is presentation: every finding appears exactly once, none are
 added, dropped, or re-worded. The renderer produces this structure:
@@ -566,9 +593,12 @@ Before writing the new review, check whether a previous one exists:
    new findings no id; the renderer numbers them after the previous run's
    highest id, so a number is never reused for a different finding.
 
-The renderer archives the previous `inHindsight.md`/`.json` into
-`hindsight-history/` before writing the new pair — no manual copying is
-needed.
+The renderer cross-checks this against the previous review: `--check`
+warns about a previous id missing from `since_last_review`, an entry for
+an id the previous review didn't have, and an unresolved or partial
+finding that wasn't carried forward under its id. It archives the
+previous `inHindsight.md`/`.json` into `hindsight-history/` before writing
+the new pair — no manual copying is needed.
 
 ## Guardrails
 
@@ -698,9 +728,17 @@ bash "$S/aggregate_context.sh" --root <path> --files-from files.txt \
   Decision Matrix, Since Last Review, No Findings, Dependency Health
   Scorecard (with its computed Health Score), and Gap Report sections;
   warns about any area with neither a finding nor a `no_findings` entry.
-  Exits 1 if more than one finding carries a `decision_matrix`. A
+  Checks claims via `verify_findings.py` (below). Exits 1 if more than one
+  finding carries a `decision_matrix`. `--check` runs everything but
+  writes and archives nothing, exiting 0 (clean) or 2 (warnings). A
   needs-input document (Execution Modes) renders as a short status page
   instead, with the question and any goal hypotheses.
+- `verify_findings.py` — the claim checks `render_output.py` runs, as
+  warnings: evidence paths exist under the root, cited lines are in range,
+  evidence quotes appear (whitespace-insensitively) within 3 lines of the
+  cited line; on a re-run, `since_last_review` classifies every previous
+  finding and unresolved/partial ones are carried forward under their id.
+  Not run directly.
 - `render_decision_matrix.py` — the table renderer `render_output.py` uses
   for Step 4. Also usable on its own to preview a matrix: takes a JSON
   array of `{solution, impact, effort, argument}` candidates (stdin or a

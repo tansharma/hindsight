@@ -17,7 +17,13 @@ A findings document is a JSON object:
           "rationale": "...",
           "impact": "High | Low",
           "effort": "High | Low",
-          "evidence": ["path/to/file.py:42", ...],          # optional
+          "evidence": ["path/to/file.py:42",                 # optional
+                       {"path": "path/to/file.py", "line": "40-44",
+                        "quote": "<verbatim excerpt>"}, ...],
+                                      # strings ("path", "path:N",
+                                      # "path:N-M") or objects; the renderer
+                                      # checks paths, lines, and quotes
+                                      # against the project root
           "prompt": "<self-contained LLM action prompt>",
           "done_when": "<how to verify the fix>",
           "decision_matrix": [ {solution, impact, effort, argument}, ... ]
@@ -209,15 +215,29 @@ def normalize_finding(raw):
         # Off-spec labels still render (in their own section) rather than
         # being silently discarded.
         out["rank_label"] = raw_rank
-    evidence = f.get("evidence") or []
-    if isinstance(evidence, str):
-        evidence = [evidence]
-    out["evidence"] = [str(e).strip() for e in evidence if str(e).strip()]
+    out["evidence"] = normalize_evidence(f.get("evidence"))
     out["prompt"] = text_field(f, "prompt")
     out["done_when"] = text_field(f, "done_when")
     if f.get("decision_matrix"):
         out["decision_matrix"] = f["decision_matrix"]
     return out, None
+
+
+def normalize_evidence(evidence):
+    """Evidence entries are strings or {"path", "line", "quote"} objects
+    (path required; line is "N" or "N-M"). Blank entries are dropped."""
+    if isinstance(evidence, (str, dict)):
+        evidence = [evidence]
+    out = []
+    for e in evidence if isinstance(evidence, list) else []:
+        if isinstance(e, dict):
+            entry = {k: str(e[k]).strip() for k in ("path", "line", "quote")
+                     if e.get(k) is not None and str(e[k]).strip()}
+            if "path" in entry:
+                out.append(entry)
+        elif str(e).strip():
+            out.append(str(e).strip())
+    return out
 
 
 def normalize_document(data):

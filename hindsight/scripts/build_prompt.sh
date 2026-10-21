@@ -198,7 +198,7 @@ For every finding, provide:
 - **issue** — what is wrong, concretely, naming the files/modules involved.
 - **rationale** — the retrospective judgment in three beats: what made this choice reasonable (or invisible) at the time; what is clear now that the whole project is in view; and why it matters to the user's goal.
 - **impact** and **effort** — each exactly "High" or "Low".
-- **evidence** — the file paths (with line numbers where useful) that show the problem.
+- **evidence** — where the problem shows, relative to the project root: strings ("path", "path:42", "path:42-50") or objects {"path", "line", "quote"} whose quote is a short excerpt copied verbatim from the cited lines. Prefer the quoted form for the claims a finding rests on; paths, line numbers, and quotes are checked against the files, so cite only what you have seen.
 - **prompt** — a self-contained prompt the user can paste into any coding agent to implement the fix: name the specific files, describe the current state and the desired end state, and restate the relevant slice of the user's goal. The agent receiving it will not have this review as context.
 - **done_when** — how to verify the fix is complete: a test that passes, a command whose output changes, or an observable behaviour.
 
@@ -226,7 +226,7 @@ Respond with a single JSON object and nothing else — no prose before or after 
       "rationale": "...",
       "impact": "High",
       "effort": "Low",
-      "evidence": ["path/to/file.ext:42"],
+      "evidence": ["path/to/file.ext:42", {"path": "path/to/other.ext", "line": "10-12", "quote": "verbatim excerpt"}],
       "prompt": "...",
       "done_when": "...",
       "decision_matrix": [
