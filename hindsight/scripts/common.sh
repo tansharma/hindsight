@@ -1,5 +1,6 @@
-# Shared helpers for Hindsight's shell scripts (list_files.sh,
-# aggregate_context.sh). Sourced, not executed.
+# Shared helpers for Hindsight's shell scripts (list_files.sh, and the
+# retired parse_args.sh / aggregate_context.sh in tests/fixtures/
+# legacy_pipeline/). Sourced, not executed.
 
 BINARY_SNIFF_BYTES=8192
 

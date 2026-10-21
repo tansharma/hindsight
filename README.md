@@ -6,7 +6,7 @@ Hindsight is an advanced skill for experienced software engineers seeking deep a
 
 **Current Scope:** Hindsight is an Agent Skill for Claude Code, Codex CLI, Gemini CLI, and GitHub Copilot. Each review produces `inHindsight.md` for people and `inHindsight.json` for scripts and agents. Each finding comes with a ready-to-paste fix prompt and a "Done when" check. The review also includes a Dependency Health Scorecard and tracks which earlier findings you've resolved. It requires an explicit goal, and can run unattended in CI or under another agent.
 
-**Note** Project.md is there to provide project context only. When the scripted pipeline runs, `build_prompt.sh` does a `cat` on the whole file, and its headings and structure are dropped verbatim into the Project Context section of the prompt. It accepts `project.md`, `Project.md`, or `PROJECT.md`. The skill still runs without the file, but the model then has to infer project intent purely from the stated goal and the files it reads. **TL;DR** Add a Project.md to your repo with 3 defined sections: Idea, Ambition, Goal.
+**Note** Hindsight reads a project's documentation before its code to learn what was intended, so a short intent document at your repository root makes every review sharper. `examples/Project.md` is a sample with three sections (Idea, Ambition, Goal); it is also Hindsight's own spec. Copy it to your repo root as `Project.md` and replace its content with your project's. The skill still runs without one, inferring intent from your goal, README, and other docs. **TL;DR** Add a Project.md to your repo with 3 defined sections: Idea, Ambition, Goal.
 
 ## Requirements
 
@@ -16,9 +16,9 @@ Hindsight is an advanced skill for experienced software engineers seeking deep a
 - **Windows:** the `.sh` helpers need a bash, such as Git Bash or WSL. The Python helpers run natively.
 
 ## Integrating Hindsight into your workflow
-Hindsight is a portable Agent Skill. The folder `hindsight/` contains a `SKILL.md` along with a `scripts/` helper directory. This folder works, unmodified, in Claude Code, Codex CLI, Gemini CLI, and GitHub Copilot. Each discovers skills the same way, from a `skills/` directory: personal (applies to all your projects) or project-level (applies only inside one repo).
+Hindsight is a portable Agent Skill. The folder `hindsight/` contains a `SKILL.md` along with a `scripts/` helper directory and a `references/` directory the agent reads only when needed. This folder works, unmodified, in Claude Code, Codex CLI, Gemini CLI, and GitHub Copilot. Each discovers skills the same way, from a `skills/` directory: personal (applies to all your projects) or project-level (applies only inside one repo).
 
-The whole skill lives in the `hindsight/` folder at the root of this repo. To install it, copy that folder into the tool's `skills/` directory. Keep the folder name `hindsight` and keep `SKILL.md` plus `scripts/` together inside it. Nothing else in the repo is needed to use the skill. `tests/` is only for developing the skill further (see [Running the tests](#running-the-tests-for-skill-developers)), so you can ignore or delete it.
+The whole skill lives in the `hindsight/` folder at the root of this repo. To install it, copy that folder into the tool's `skills/` directory. Keep the folder name `hindsight` and keep `SKILL.md`, `scripts/`, and `references/` together inside it. Nothing else in the repo is needed to use the skill. `tests/` is only for developing the skill further (see [Running the tests](#running-the-tests-for-skill-developers)), so you can ignore or delete it.
 
 The commands below copy the folder *into* the `skills/` directory, so running the same command again updates an existing install in place. (Copying to `…/skills/hindsight` instead would nest a second `hindsight/` inside an existing install.) Files deleted from the skill in a newer version aren't removed by an update. To get an exact copy, delete the installed `hindsight` folder first.
 
@@ -139,13 +139,15 @@ Evidence is checked, not just printed. Before writing the review, Hindsight chec
 
 Alongside it, Hindsight writes `inHindsight.json`: the same findings in machine-readable form, for scripts or coding agents that want to pick up a finding by ID ("implement H-003 from inHindsight.json") without parsing Markdown.
 
+The JSON's shape is defined in the docstring of `hindsight/scripts/findings_schema.py`. A review document has `schema_version`, `status` (`complete`, or `needs_input` when a run stopped to ask for something), `root`, `goal`, `generated`, `summary`, and `findings`. Each finding has `id`, `area`, `title`, `issue`, `rationale`, `impact`, `effort`, `evidence` (strings like `path:42`, or `{path, line, quote}` objects), `prompt`, `done_when`, and, when a citation failed verification, `evidence_unverified`. Alongside the findings are `no_findings`, `gap_report`, `dependency_scorecard` (with its computed `health_score`), and `since_last_review`.
+
 Those are the only files Hindsight writes; it never modifies your project's code directly. Run it again later in the same project and it will also report which of its previous findings you've since resolved, keeping each carried-forward finding's ID. Before writing a new review, it moves the previous `inHindsight.md`/`.json` into `hindsight-history/` with a timestamp, so earlier reviews are never lost. You may want to add `hindsight-history/` to your `.gitignore`.
 
 For the single most critical finding in each review, Hindsight also generates a weighted decision matrix: three or more distinct candidate solutions scored by Estimated Impact and Development Effort (1-5), rendered as a table directly beneath that finding — so the highest-leverage issue comes with options to weigh, not just one prescribed fix.
 
 Hindsight also cross-references every Documentation Gaps finding against the actual code: it lists the specific public functions, classes, and interfaces missing a doc-comment (in whatever convention is idiomatic to that language) or a usage example in the primary docs, as a Cross-Reference Gap Report at the end of `inHindsight.md`.
 
-Every review also includes a **Dependency Health Scorecard**, a quantitative view of architectural risk from third-party packages and internal coupling. It lists high-risk packages, circular imports between your modules, "volatile hub" modules (imported by many others, but full of TODO/FIXME markers or changed constantly), and calls to deprecated APIs. It also gives a Health Score computed by a fixed, visible formula, so the same project gets the same score. For Python and JavaScript/TypeScript, the import graph is computed by a script rather than estimated. Package risk is judged from local evidence only (manifests, lockfiles, the code itself), with no network calls. Anything that rests on the model's own knowledge is marked "unverified".
+Every review also includes a **Dependency Health Scorecard**, a quantitative view of architectural risk from third-party packages and internal coupling. It lists high-risk packages, circular imports between your modules, "volatile hub" modules (imported by many others, but full of TODO/FIXME markers or changed constantly), and calls to deprecated APIs. It also gives a Health Score computed by a fixed, visible formula. For Python and JavaScript/TypeScript, circular imports and volatile hubs come from a deterministic script, so that part of the score is reproducible; risky packages and deprecated APIs are identified by the model, so the score can vary between runs. Package risk is judged from local evidence only (manifests, lockfiles, the code itself), with no network calls. Anything that rests on the model's own knowledge is marked "unverified".
 
 ## Running unattended (CI, headless, or from another agent)
 
@@ -163,6 +165,19 @@ HINDSIGHT_NONINTERACTIVE=1 claude -p '/hindsight review . against the goal "low-
 ```
 
 Whatever the mode, Hindsight treats the files it reviews as data. Instructions embedded in them are never followed or copied into the prompts it writes, and secret values never appear in its output.
+
+## Using the helper scripts directly
+
+The agent runs these for you during a review, but they also work on their own (`S=hindsight/scripts`, or wherever you installed the skill):
+
+```bash
+bash "$S/list_files.sh" --root path/to/project > files.txt          # the files a review would scan
+python3 "$S/import_graph.py" --root path/to/project --files-from files.txt > graph.json
+python3 "$S/render_output.py" --check --root path/to/project --goal "..." findings.json   # validate only
+python3 "$S/render_output.py" --root path/to/project --goal "..." findings.json           # write inHindsight.md/.json
+```
+
+`render_output.py --check` exits 0 when a findings document is clean, 2 when it has warnings (unverifiable evidence, an unaddressed area, a re-run that doesn't account for the previous review), and 1 when it can't be rendered. A real render moves any previous review into `hindsight-history/` first. Script internals are documented in `hindsight/references/scripts.md`.
 
 ## Running the tests (for skill developers)
 
@@ -191,10 +206,10 @@ Each run is capped with `claude --max-budget-usd`, so the most it can cost is ru
 
 | # | Task | Status | Notes|
 |---|------|--------|------|
-| 1 | Setup Project Structure and Input Handling. Create a core skill wrapper module  | Done  | /scripts/parse_args.sh        |
-| 2 | Directory Scanning and Context Aggregation. Implement file reading service.     | Done  | /scripts/aggregate_context.sh |
-| 3 | Prompt Generation / Goal Framing. Develop a primary prompt template.            | Done  | /scripts/build_prompt.sh      |
-| 4 | Structured Output Parsing. Implement parsing logic for the LLM's response.      | Done  | /scripts/parse_findings.py    |
+| 1 | Setup Project Structure and Input Handling. Create a core skill wrapper module  | Done  | tests/fixtures/legacy_pipeline/parse_args.sh (retired, task 16) |
+| 2 | Directory Scanning and Context Aggregation. Implement file reading service.     | Done  | tests/fixtures/legacy_pipeline/aggregate_context.sh (retired, task 16) |
+| 3 | Prompt Generation / Goal Framing. Develop a primary prompt template.            | Done  | tests/fixtures/legacy_pipeline/build_prompt.sh (retired, task 16) |
+| 4 | Structured Output Parsing. Implement parsing logic for the LLM's response.      | Done  | tests/fixtures/legacy_pipeline/parse_findings.py (retired, task 16) |
 | 5 | Output Generation (`inHindsight.md`). Develop a module to render the output.    | Done  | /scripts/render_output.py     |
 | 6 | User Feedback Integration Loop. Implement basic tracking logic.                 | Done  |                               |
 | 7 | Weighted Decision Matrix Generator. Score 3+ candidate solutions for the single most critical finding. | Done | /scripts/render_decision_matrix.py |
@@ -206,3 +221,4 @@ Each run is capped with `claude --max-budget-usd`, so the most it can cost is ru
 | 13 | Dependency Health Scorecarding. Risky packages, circular imports, volatile hub modules, and deprecated API use, with a formula-computed Health Score; local evidence only. | Done | /scripts/import_graph.py, SKILL.md Steps 2-3 & 5 |
 | 14 | Claim verification. Evidence paths, lines, and verbatim quotes checked against the project; re-run coverage checked against the previous review; `--check` validates without writing, so corrections don't renumber findings. | Done | /scripts/verify_findings.py, /scripts/render_output.py |
 | 15 | Review accuracy. Import graph ignores TYPE_CHECKING and type-only imports and reports deferred imports; one Impact/Effort rubric shared by SKILL.md and the P-Prompt; opt-in eval harness with planted-issue fixture and a deterministic grader. | Done | /scripts/import_graph.py, SKILL.md Step 3, tests/eval/ |
+| 16 | Skill cleanup. Retired the unused standalone prompt pipeline to `tests/fixtures/legacy_pipeline/`; moved script internals and the output template into `hindsight/references/` (SKILL.md 6,160 → under 4,500 words); corrected docs that overclaimed determinism; `Project.md` moved to `examples/`. | Done | references/, tests/fixtures/, examples/Project.md |

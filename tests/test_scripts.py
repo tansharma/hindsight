@@ -1,4 +1,5 @@
-"""Regression tests for the deterministic helper scripts in hindsight/scripts/.
+"""Regression tests for the deterministic helper scripts in hindsight/scripts/,
+and for the retired pipeline kept in tests/fixtures/legacy_pipeline/.
 
 Run from the repo root (stdlib only, no install needed):
     python3 -m unittest discover -s tests -v
@@ -17,12 +18,20 @@ import unittest
 from pathlib import Path
 
 SCRIPTS = Path(__file__).resolve().parent.parent / "hindsight" / "scripts"
+FIXTURES = Path(__file__).resolve().parent / "fixtures"
+LEGACY = FIXTURES / "legacy_pipeline"
+LEGACY_SCRIPTS = ("parse_args.sh", "aggregate_context.sh", "build_prompt.sh", "parse_findings.py")
+
+
+def script_path(script):
+    """A shipped script, or one of the retired pipeline's."""
+    return LEGACY / script if script in LEGACY_SCRIPTS else SCRIPTS / script
 
 
 def run(script, *args, stdin=None, env=None, cwd=None, isolated=False):
     interpreter = ["bash"] if script.endswith(".sh") else [sys.executable] + (["-I"] if isolated else [])
     return subprocess.run(
-        interpreter + [str(SCRIPTS / script), *args],
+        interpreter + [str(script_path(script)), *args],
         input=stdin,
         capture_output=True,
         text=True,
@@ -73,7 +82,7 @@ def matrix(n):
 
 class ParseFindingsTest(unittest.TestCase):
     def test_mock_review_parses_three_findings(self):
-        result = run("parse_findings.py", str(SCRIPTS / "mock_review.txt"))
+        result = run("parse_findings.py", str(LEGACY / "mock_review.txt"))
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(len(json.loads(result.stdout)["findings"]), 3)
 
@@ -155,7 +164,7 @@ class ParseFindingsTest(unittest.TestCase):
         self.assertEqual(findings[0]["area"], "Architectural Patterns")
 
     def test_runs_in_isolated_mode(self):
-        result = run("parse_findings.py", str(SCRIPTS / "mock_review.txt"), isolated=True)
+        result = run("parse_findings.py", str(LEGACY / "mock_review.txt"), isolated=True)
         self.assertEqual(result.returncode, 0, result.stderr)
 
 
@@ -222,7 +231,7 @@ class FullTemplateTest(unittest.TestCase):
 
     def test_mock_document_renders_every_section(self):
         result = run("render_output.py", "--root", str(self.root), "--goal", "g",
-                     str(SCRIPTS / "mock_review.json"))
+                     str(FIXTURES / "mock_review.json"))
         self.assertEqual(result.returncode, 0, result.stderr)
         md = (self.root / "inHindsight.md").read_text()
         self.assertTrue(md.startswith(f"# In Hindsight — {self.root.name}\n"))
@@ -307,12 +316,12 @@ class FullTemplateTest(unittest.TestCase):
 
     def test_runs_in_isolated_mode(self):
         result = run("render_output.py", "--root", str(self.root), "--goal", "g",
-                     str(SCRIPTS / "mock_review.json"), isolated=True)
+                     str(FIXTURES / "mock_review.json"), isolated=True)
         self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_mock_document_addresses_every_area(self):
         result = run("render_output.py", "--root", str(self.root), "--goal", "g",
-                     str(SCRIPTS / "mock_review.json"))
+                     str(FIXTURES / "mock_review.json"))
         self.assertNotIn("not addressed", result.stderr)
         self.assertEqual(self.sidecar()["status"], "complete")
 
@@ -1326,14 +1335,45 @@ class DecisionMatrixTest(unittest.TestCase):
 
 class PackagingTest(unittest.TestCase):
     def test_scripts_are_executable(self):
-        for path in SCRIPTS.iterdir():
+        for path in list(SCRIPTS.iterdir()) + list(LEGACY.iterdir()):
             if path.suffix in (".sh", ".py") and path.read_text().startswith("#!"):
                 with self.subTest(script=path.name):
                     self.assertTrue(path.stat().st_mode & stat.S_IXUSR)
 
+    def test_shipped_skill_excludes_retired_pipeline_and_fixtures(self):
+        shipped = {p.name for p in SCRIPTS.iterdir()}
+        for name in LEGACY_SCRIPTS + ("mock_review.txt", "mock_review.json"):
+            self.assertNotIn(name, shipped)
+
+    def test_output_format_reference_matches_score_deductions(self):
+        sys.path.insert(0, str(SCRIPTS))
+        try:
+            from findings_schema import SCORE_DEDUCTIONS
+        finally:
+            sys.path.pop(0)
+        reference = " ".join((SCRIPTS.parent / "references" / "output-format.md").read_text().split())
+        for _, singular, _, points in SCORE_DEDUCTIONS:
+            with self.subTest(deduction=singular):
+                self.assertIn(f"{points} per {singular}", reference)
+
+    def test_skill_md_points_to_existing_references(self):
+        import re
+        skill = (SCRIPTS.parent / "SKILL.md").read_text()
+        refs = set(re.findall(r"references/[\w.-]+\.md", skill))
+        self.assertEqual(refs, {"references/output-format.md", "references/scripts.md"})
+        for ref in refs:
+            self.assertTrue((SCRIPTS.parent / ref).exists())
+
+    def test_skill_md_mentions_only_existing_scripts(self):
+        import re
+        skill = (SCRIPTS.parent / "SKILL.md").read_text()
+        for name in sorted(set(re.findall(r"(?:scripts/|\$S/|`)([\w-]+\.(?:sh|py))\b", skill))):
+            with self.subTest(script=name):
+                self.assertTrue((SCRIPTS / name).exists())
+
     def test_pipeline_from_another_working_directory(self):
         with tempfile.TemporaryDirectory() as tmp:
-            parsed = run("parse_findings.py", str(SCRIPTS / "mock_review.txt"), cwd=tmp)
+            parsed = run("parse_findings.py", str(LEGACY / "mock_review.txt"), cwd=tmp)
             result = run("render_output.py", "--root", tmp, "--goal", "g",
                          stdin=parsed.stdout, cwd=tmp)
             self.assertEqual(result.returncode, 0, result.stderr)

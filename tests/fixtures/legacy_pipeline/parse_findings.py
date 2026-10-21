@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
-"""T4 test script: turns the architect review produced by executing T3's
-P-Prompt into a findings document (the contract in findings_schema.py).
+"""Legacy pipeline (retired from the shipped skill; kept in
+tests/fixtures/legacy_pipeline/ as tested reference code): turns the review
+produced by executing build_prompt.sh's P-Prompt into a findings document
+(the contract in hindsight/scripts/findings_schema.py). The live skill has
+the agent write the findings document directly.
 
 Usage:
-    scripts/parse_findings.py < review.txt
-    scripts/parse_findings.py path/to/review.txt
+    parse_findings.py < review.txt
+    parse_findings.py path/to/review.txt
 
 The P-Prompt asks the model for JSON. If the input is JSON — a findings
 document, a bare array, or a needs-input document, optionally wrapped in
@@ -40,7 +43,8 @@ import os
 import re
 import sys
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+# The findings contract lives with the shipped scripts.
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "hindsight", "scripts"))
 from findings_schema import NEEDS_INPUT, load_document  # noqa: E402
 
 FIELD_ALIASES = {

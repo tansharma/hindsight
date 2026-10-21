@@ -485,6 +485,9 @@ def clean_path(p):
 
 
 def analyze(root, paths):
+    """Build the import-graph report (the JSON object in this module's
+    docstring) for `paths`, relative to `root`. Paths that aren't files are
+    ignored; files that don't parse are listed in parse_errors."""
     paths = sorted({clean_path(p) for p in paths if clean_path(p)})
     paths = [p for p in paths if os.path.isfile(os.path.join(root, p))]
     stdlib = stdlib_modules()

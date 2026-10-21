@@ -7,7 +7,7 @@
 # Usage:
 #   scripts/list_files.sh --root <path>
 #   scripts/list_files.sh --root <path> > files.txt
-#   scripts/aggregate_context.sh --root <path> --files-from files.txt
+#   scripts/import_graph.py --root <path> --files-from files.txt
 #
 # Behavior:
 #   - In a git work tree, lists tracked plus untracked-but-not-ignored files,

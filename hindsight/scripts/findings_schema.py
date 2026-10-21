@@ -1,4 +1,6 @@
-"""The findings contract shared by parse_findings.py and render_output.py.
+"""The findings contract: what render_output.py accepts and writes to
+inHindsight.json (also used by the retired parse_findings.py in
+tests/fixtures/legacy_pipeline/).
 
 A findings document is a JSON object:
 
@@ -65,8 +67,8 @@ nobody to ask — it records a needs-input document instead:
 
 A bare array of findings is accepted as a document with only "findings".
 The pre-JSON keys (Area, Issue, Rationale, Impact/Effort, LLM_Prompt,
-Done_When) are accepted too, so prose parsed by parse_findings.py and older
-saved findings still load.
+Done_When) are accepted too, so prose parsed by the legacy parse_findings.py
+and older saved findings still load.
 """
 
 import re
@@ -75,8 +77,9 @@ SCHEMA_VERSION = 1
 
 AREA_ORDER = ["Architectural Patterns", "Code Quality", "Documentation Gaps"]
 
-# Priority order: quick wins first, then strategic bets, then easy cleanup,
-# then lowest priority. Matches project.md's Impact/Effort decision matrix.
+# Priority order: quick wins first (most goal progress per unit of effort),
+# then strategic bets (high impact, worth planning for), then easy cleanup,
+# then high-effort, low-impact work last.
 IMPACT_EFFORT_ORDER = [("High", "Low"), ("High", "High"), ("Low", "Low"), ("Low", "High")]
 
 REVIEW_STATUSES = ["resolved", "partial", "unresolved", "obsolete"]
@@ -156,12 +159,20 @@ def canonical_impact_effort(value):
 
 
 def level(value):
+    """"High" or "Low" for a case- and whitespace-insensitive match of
+    either, else None (so off-spec values like "Medium" are caught)."""
     if isinstance(value, str) and value.strip().capitalize() in ("High", "Low"):
         return value.strip().capitalize()
     return None
 
 
 def normalize_area(area):
+    """Map a loosely worded area to one of AREA_ORDER by substring, checked
+    in this order: "architect" (Architectural Patterns), then "doc"
+    (Documentation Gaps), then "code" or "quality" (Code Quality). So
+    "Architecture docs" is Architectural Patterns and "Code documentation"
+    is Documentation Gaps. Anything else is kept as written and renders
+    under its own heading."""
     lowered = area.lower()
     if "architect" in lowered:
         return "Architectural Patterns"

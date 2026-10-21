@@ -1,12 +1,10 @@
 #!/usr/bin/env python3
-"""T5 test script: renders a findings document (the contract in
-findings_schema.py — typically written by the agent, or produced by
-scripts/parse_findings.py) into the final deliverables.
+"""SKILL.md Step 5's renderer: turns a findings document (the contract in
+findings_schema.py, written by the reviewing agent) into the final
+deliverables. Used by every live review.
 
 Usage:
-    scripts/parse_findings.py review.txt | \
-      scripts/render_output.py --root <path> --goal "<use case>"
-    # or
+    scripts/render_output.py [--root <path>] [--goal "<use case>"] < findings.json
     scripts/render_output.py [--root <path>] [--goal "<use case>"] findings.json
     scripts/render_output.py --check ... findings.json   # validate only
 
@@ -303,6 +301,10 @@ def render_needs_input(doc):
 
 
 def render(doc, warnings=None):
+    """Return inHindsight.md's text for a normalized review document whose
+    findings already have ids. Rendering problems (a skipped matrix, a
+    malformed since_last_review entry, a missing scorecard) are appended to
+    `warnings`; nothing is written here."""
     warnings = [] if warnings is None else warnings
     findings = doc["findings"]
     root, goal = doc["root"], doc["goal"]

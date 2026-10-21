@@ -1,13 +1,16 @@
 #!/usr/bin/env bash
-# T1 test script: validates the three Hindsight inputs (project_root, file_list,
-# user_goal) and echoes the scope confirmation object described in SKILL.md Step 1.
+# Legacy pipeline (retired from the shipped skill; kept in
+# tests/fixtures/legacy_pipeline/ as tested reference code): validates the
+# three Hindsight inputs (project_root, file_list, user_goal) and echoes the
+# scope confirmation object described in SKILL.md Step 1. The live skill
+# collects and validates these inputs itself.
 #
 # Usage:
-#   scripts/parse_args.sh --root <path> --goal "<use case>" [--files "a.py,b.py,..."]
-#   scripts/parse_args.sh --root <path> --goal "<use case>" --files-from <list.txt | ->
+#   parse_args.sh --root <path> --goal "<use case>" [--files "a.py,b.py,..."]
+#   parse_args.sh --root <path> --goal "<use case>" --files-from <list.txt | ->
 #
 # --files-from reads one path per line ("-" for stdin), e.g. the output of
-# scripts/list_files.sh; use it for paths that contain commas.
+# hindsight/scripts/list_files.sh; use it for paths that contain commas.
 #
 # Exit codes:
 #   0  inputs valid, confirmation JSON printed to stdout
@@ -15,7 +18,8 @@
 
 set -euo pipefail
 
-source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
+# Shared helpers live with the shipped scripts.
+source "$(dirname "${BASH_SOURCE[0]}")/../../../hindsight/scripts/common.sh"
 
 MAX_FILES=300
 

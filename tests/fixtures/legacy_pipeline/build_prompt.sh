@@ -1,22 +1,25 @@
 #!/usr/bin/env bash
-# T3 test script: assembles the primary directive prompt ("P-Prompt") that
-# will be sent to the core LLM to perform the actual architectural review.
+# Legacy pipeline (retired from the shipped skill; kept in
+# tests/fixtures/legacy_pipeline/ as tested reference code): assembles a
+# standalone review prompt ("P-Prompt") for running Hindsight's method
+# without an agent. The live skill follows hindsight/SKILL.md instead; the
+# Impact/Effort rubric here must stay worded as in SKILL.md (RubricTest).
 # This script is purely deterministic templating — it does not call an LLM
 # and does not analyze anything itself; it only combines project.md, the
-# mandatory user_goal, and the aggregated file context (T2's output) into a
+# mandatory user_goal, and the aggregated file context (aggregate_context.sh) into a
 # single ready-to-inject prompt string.
 #
 # Usage:
-#   scripts/aggregate_context.sh --root <path> --files "a.py,b.py,..." | \
-#     scripts/build_prompt.sh --root <path> --goal "<use case>"
+#   aggregate_context.sh --root <path> --files "a.py,b.py,..." | \
+#     build_prompt.sh --root <path> --goal "<use case>"
 #
 #   # or, with a pre-saved context block:
-#   scripts/build_prompt.sh --root <path> --goal "<use case>" \
+#   build_prompt.sh --root <path> --goal "<use case>" \
 #     --context-file <path/to/context.txt>
 #
-#   # optionally include scripts/import_graph.py's output for the
+#   # optionally include hindsight/scripts/import_graph.py's output for the
 #   # Dependency Health Scorecard:
-#   scripts/build_prompt.sh ... --import-graph <path/to/graph.json>
+#   build_prompt.sh ... --import-graph <path/to/graph.json>
 #
 # Behavior:
 #   - Reads project context from <root>/project.md (or Project.md /
@@ -26,7 +29,7 @@
 #     otherwise from stdin (intended to be piped straight from
 #     aggregate_context.sh).
 #   - If --import-graph is given, includes that JSON (from
-#     scripts/import_graph.py) as a deterministic dependency-analysis section.
+#     hindsight/scripts/import_graph.py) as a deterministic dependency-analysis section.
 #   - Prints the fully assembled P-Prompt to stdout. Nothing else is written
 #     to stdout; progress/diagnostics go to stderr.
 #
@@ -99,7 +102,7 @@ if [[ ! -d "$root" ]]; then
   exit 1
 fi
 
-# The repo ships `Project.md`; accept the common casings so this also works
+# Projects commonly name it `Project.md` (see examples/Project.md); accept the common casings so this also works
 # on case-sensitive filesystems (Linux), not only on macOS.
 project_md="$root/project.md"
 for name in project.md Project.md PROJECT.md; do

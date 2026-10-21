@@ -30,6 +30,8 @@ MIN_CANDIDATES = 3
 
 
 def valid_candidate(c):
+    """True if c is an object with a non-empty solution and argument and
+    integer (not bool) impact and effort in 1-5."""
     if not isinstance(c, dict):
         return False
     if not all(c.get(k) not in (None, "") for k in ("solution", "argument")):

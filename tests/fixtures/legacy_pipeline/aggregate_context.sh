@@ -1,15 +1,17 @@
 #!/usr/bin/env bash
-# T2 test script: reads every file in file_list into memory and concatenates
-# them into a single demarcated context buffer, preceded by a high-level
-# directory structure summary. Mirrors the --root/--files contract established
-# by scripts/parse_args.sh (T1) so the two can be chained.
+# Legacy pipeline (retired from the shipped skill; kept in
+# tests/fixtures/legacy_pipeline/ as tested reference code): reads every
+# file in file_list into one demarcated context buffer, preceded by a
+# high-level directory structure summary, for build_prompt.sh. The live
+# skill has the agent read the files itself. Mirrors parse_args.sh's
+# --root/--files contract so the two can be chained.
 #
 # Usage:
-#   scripts/aggregate_context.sh --root <path> --files "a.py,b.py,..."
-#   scripts/aggregate_context.sh --root <path> --files-from <list.txt | ->
+#   aggregate_context.sh --root <path> --files "a.py,b.py,..."
+#   aggregate_context.sh --root <path> --files-from <list.txt | ->
 #
 # --files-from reads one path per line ("-" for stdin), e.g. the output of
-# scripts/list_files.sh; use it for paths that contain commas.
+# hindsight/scripts/list_files.sh; use it for paths that contain commas.
 #
 # Behavior:
 #   - Files are resolved relative to --root (absolute paths are accepted only
@@ -26,7 +28,7 @@
 #   - Logs a summary line to stderr: files read / missing / skipped /
 #     truncated / total bytes.
 #   - Prints the directory structure summary + concatenated file contents to
-#     stdout, ready to feed into T3's prompt assembly.
+#     stdout, ready to feed into build_prompt.sh.
 #
 # Exit codes:
 #   0  ran to completion (even if some files were missing)
@@ -34,7 +36,8 @@
 
 set -euo pipefail
 
-source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
+# Shared helpers live with the shipped scripts.
+source "$(dirname "${BASH_SOURCE[0]}")/../../../hindsight/scripts/common.sh"
 
 MAX_FILE_BYTES="${HINDSIGHT_MAX_FILE_BYTES:-262144}"
 
