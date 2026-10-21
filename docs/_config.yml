@@ -1,0 +1,4 @@
+title: Hindsight
+description: A retrospective architectural review skill for Claude Code, Codex CLI, Gemini CLI, and GitHub Copilot.
+theme: jekyll-theme-minimal
+logo: /hindsight.ico
