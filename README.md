@@ -1,3 +1,5 @@
+<img src="hindsight.ico" alt="Hindsight icon" width="96">
+
 # Hindsight Skill
 
 Hindsight is an advanced skill for experienced software engineers seeking deep architectural reviews. Instead of simple linting or isolated file checks, Hindsight analyzes your entire project structure and documentation against a defined functional goal.
@@ -201,24 +203,3 @@ bash tests/eval/run.sh --yes --runs 2 --budget 1.00
 ```
 
 Each run is capped with `claude --max-budget-usd`, so the most it can cost is runs × budget; a full review cost about $0.65 in earlier headless checks. It evaluates the copy in `~/.claude/skills/hindsight` (it warns when that differs from this repo's `hindsight/`), needs the `claude` CLI, and never runs as part of `python3 -m unittest discover -s tests`. The fake secret and the injected comment are written into a temporary copy at run time, so neither is committed here. The grader works on its own too: `python3 tests/eval/grade.py --expected tests/eval/fixtures/orders-svc.expected.json <inHindsight.json>...`.
-
-## Tasklog
-
-| # | Task | Status | Notes|
-|---|------|--------|------|
-| 1 | Setup Project Structure and Input Handling. Create a core skill wrapper module  | Done  | tests/fixtures/legacy_pipeline/parse_args.sh (retired, task 16) |
-| 2 | Directory Scanning and Context Aggregation. Implement file reading service.     | Done  | tests/fixtures/legacy_pipeline/aggregate_context.sh (retired, task 16) |
-| 3 | Prompt Generation / Goal Framing. Develop a primary prompt template.            | Done  | tests/fixtures/legacy_pipeline/build_prompt.sh (retired, task 16) |
-| 4 | Structured Output Parsing. Implement parsing logic for the LLM's response.      | Done  | tests/fixtures/legacy_pipeline/parse_findings.py (retired, task 16) |
-| 5 | Output Generation (`inHindsight.md`). Develop a module to render the output.    | Done  | /scripts/render_output.py     |
-| 6 | User Feedback Integration Loop. Implement basic tracking logic.                 | Done  |                               |
-| 7 | Weighted Decision Matrix Generator. Score 3+ candidate solutions for the single most critical finding. | Done | /scripts/render_decision_matrix.py |
-| 8 | Cross-Reference Documentation Gap Detection. List public elements missing doc-comments/usage examples. | Done | SKILL.md Steps 3 & 5 (prompt-only) |
-| 9 | Goal Refinement Hypothesis Engine. Propose 3 concrete hypotheses when the stated goal is too bare. | Done | SKILL.md Step 1 item 4 (prompt-only) |
-| 10 | Script hardening. Fix parser/renderer/input edge cases, keep reads inside the project root, resolve script paths from the skill dir, add a regression suite. | Done | /scripts/*, tests/test_scripts.py |
-| 11 | JSON findings contract. Findings as a JSON document with stable IDs and required "Done when"; full-template renderer; `inHindsight.json` sidecar; timestamped `hindsight-history/` on re-runs. | Done | /scripts/findings_schema.py, /scripts/render_output.py |
-| 12 | Agentic mode and safety. Non-interactive mode with needs-input status files and a fixed result line; deterministic file listing; secret-file skipping; untrusted-content guardrails; explicit "no findings" per area. | Done | /scripts/list_files.sh, /scripts/common.sh, SKILL.md Execution Modes |
-| 13 | Dependency Health Scorecarding. Risky packages, circular imports, volatile hub modules, and deprecated API use, with a formula-computed Health Score; local evidence only. | Done | /scripts/import_graph.py, SKILL.md Steps 2-3 & 5 |
-| 14 | Claim verification. Evidence paths, lines, and verbatim quotes checked against the project; re-run coverage checked against the previous review; `--check` validates without writing, so corrections don't renumber findings. | Done | /scripts/verify_findings.py, /scripts/render_output.py |
-| 15 | Review accuracy. Import graph ignores TYPE_CHECKING and type-only imports and reports deferred imports; one Impact/Effort rubric shared by SKILL.md and the P-Prompt; opt-in eval harness with planted-issue fixture and a deterministic grader. | Done | /scripts/import_graph.py, SKILL.md Step 3, tests/eval/ |
-| 16 | Skill cleanup. Retired the unused standalone prompt pipeline to `tests/fixtures/legacy_pipeline/`; moved script internals and the output template into `hindsight/references/` (SKILL.md 6,160 → under 4,500 words); corrected docs that overclaimed determinism; `Project.md` moved to `examples/`. | Done | references/, tests/fixtures/, examples/Project.md |
