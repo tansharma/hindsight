@@ -74,29 +74,11 @@ happens when it would otherwise stop to ask the user something.
 
 In non-interactive mode, **never ask a question and never guess the
 answer to one.** Every place Step 1 would stop and ask instead records a
-**needs-input** result (Step 1 says which), renders it, and ends the run:
-
-```bash
-python3 "<skill-dir>/scripts/render_output.py" --root "<project_root>" <<'NEEDS'
-{"status": "needs_input", "missing": ["goal"], "goal": "<bare goal, if one was given>",
- "hypotheses": [{"label": "...", "goal": "...", "scope": ["path", "..."]}]}
-NEEDS
-```
-
-`missing` lists any of `goal`, `goal_specificity`, `file_list`;
-`hypotheses` (three or more) is required for `goal_specificity`. The
-renderer writes a short status page to `inHindsight.md` and the document
-to `inHindsight.json`, archiving any previous review into
-`hindsight-history/` first. If `project_root` itself is unknown there is
-nowhere to write, so skip the render.
-
-**End every non-interactive run with a fixed first line** in your final
-message, so a calling script or agent can branch on it without parsing
-prose:
-
-- `HINDSIGHT: complete — <n> findings — <project_root>/inHindsight.md`
-- `HINDSIGHT: needs-input — missing: <comma-separated list>` (followed by
-  the question and, for `goal_specificity`, the hypotheses)
+**needs-input** result (Step 1 says which), renders it, and ends the run,
+and every non-interactive run ends with a fixed first line
+(`HINDSIGHT: complete — …` or `HINDSIGHT: needs-input — …`). Read
+`references/non-interactive.md` for the needs-input render command and the
+exact first-line formats before starting a non-interactive run.
 
 ## Step 1 — Collect and Validate the Three Required Inputs
 
@@ -142,27 +124,12 @@ a review, or too bare to do so:
    e.g. "make it faster", "improve it", "clean this up". A goal that
    already names one, even loosely (e.g. "Optimize for low read latency",
    "This service handles payment processing"), is concrete enough; proceed
-   with it as stated. For a genuinely bare goal:
-   - Do a **lightweight structural skim only** — the directory tree and
-     top-level READMEs, not the full `file_list` contents (that read
-     happens in Step 2, after scope is settled, so it isn't spent on a
-     goal the user is about to redirect).
-   - From that skim, identify the project's apparent core business
-     processes or functional areas (e.g. payments, auth, ingestion).
-   - Generate **three distinct, concrete hypotheses** for what the real
-     objective might be, each with a short label, a restated concrete
-     goal, and a mini-scope checklist of the key files/modules that would
-     need immediate review to test that specific hypothesis.
-   - **Stop and present all three; do not proceed.** Ask the user to pick
-     one, blend them, or state their own refined goal instead. Treat
-     whatever they confirm as the `user_goal` for the rest of the review.
-     A hypothesis is a candidate for the user to choose, never a
-     replacement the skill decides on its own — the same "never infer the
-     goal" rule from item 3 applies here to each individual hypothesis.
-   - *Non-interactive:* record a needs-input result with
-     `missing: ["goal_specificity"]`, the bare goal, and all three
-     hypotheses — the caller picks one and re-runs. Never pick one
-     yourself.
+   with it as stated. For a genuinely bare goal, read
+   `references/goal-refinement.md` and follow it: a structural skim only,
+   three concrete hypotheses, then **stop until the user picks, blends, or
+   replaces one**. *Non-interactive:* record a needs-input result with
+   `missing: ["goal_specificity"]`, the bare goal, and all three
+   hypotheses. Never pick one yourself.
 
 Once valid (and, if refined, once the user has confirmed a specific goal),
 restate the scope in one compact confirmation before analyzing,
@@ -463,7 +430,7 @@ guarantees are in `references/output-format.md`; read it only if `python3`
 is unavailable and you must write the files by hand.
 
 In non-interactive mode, finish with the `HINDSIGHT: complete — …` line
-described under Execution Modes.
+from `references/non-interactive.md`.
 
 ## Step 6 — Re-Runs: Track What Was Acted On
 
@@ -471,40 +438,12 @@ Success for Hindsight is measured by whether the user *implements* its
 suggestions — so every run after the first must close the loop.
 
 Before writing the new review, check whether a previous one exists:
-
-1. **Extract prior findings** from `<project_root>/inHindsight.json` — each
-   has a stable `id`, its `issue`, and its `done_when`. If that file's
-   `status` is `needs_input` (the last run stopped for input and produced no
-   review), use the newest `*-inHindsight.json` in `hindsight-history/`
-   whose `status` is `complete` instead. If only an older `inHindsight.md`
-   exists (from before the JSON sidecar), read the findings from its
-   headings and Issue/Rationale fields.
-2. **Verify each against the current code** — not against memory of the
-   last run. A prior finding's `done_when` is the first thing to check.
-   Classify each as:
-   - **resolved** — the code now reflects the suggested change (cite the
-     evidence: file, function, or doc that changed).
-   - **partial** — started but incomplete; say what remains.
-   - **unresolved** — unchanged.
-   - **obsolete** — no longer applicable (the code it referred to was
-     removed, or the goal changed).
-3. **Record the result in `since_last_review`** — one entry per prior
-   finding: `{"id", "title", "status", "evidence"}`. The renderer prints
-   the `## Since Last Review` section immediately after the Executive
-   Summary and computes the tally line itself.
-4. **Carry unresolved and partial findings forward** into the new
-   document's `findings` **with their original `id`**, re-ranked if
-   circumstances changed, so the new review is always the single complete,
-   current picture and its ids line up with the last one. Give genuinely
-   new findings no id; the renderer numbers them after the previous run's
-   highest id, so a number is never reused for a different finding.
-
-The renderer cross-checks this against the previous review: `--check`
-warns about a previous id missing from `since_last_review`, an entry for
-an id the previous review didn't have, and an unresolved or partial
-finding that wasn't carried forward under its id. It archives the
-previous `inHindsight.md`/`.json` into `hindsight-history/` before writing
-the new pair — no manual copying is needed.
+`<project_root>/inHindsight.json`, an older `inHindsight.md`, or
+`hindsight-history/`. If one does, read `references/re-runs.md` and follow
+it: verify each prior finding against the current code (not memory),
+classify it resolved, partial, unresolved, or obsolete in
+`since_last_review`, and carry unresolved and partial findings forward
+under their original `id`. A first review skips this step.
 
 ## Guardrails
 

@@ -6,6 +6,11 @@ files must be written by hand. The Health Score numbers below restate
 `SCORE_DEDUCTIONS` in `scripts/findings_schema.py`, which is the source of
 truth (a test checks the two agree).
 
+Contents:
+- `inHindsight.md` structure — the full rendered template
+- What the renderer guarantees
+- `inHindsight.json` — the sidecar's shape
+
 ## `inHindsight.md` structure
 
 ````markdown

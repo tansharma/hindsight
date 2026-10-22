@@ -1360,7 +1360,9 @@ class PackagingTest(unittest.TestCase):
         import re
         skill = (SCRIPTS.parent / "SKILL.md").read_text()
         refs = set(re.findall(r"references/[\w.-]+\.md", skill))
-        self.assertEqual(refs, {"references/output-format.md", "references/scripts.md"})
+        self.assertEqual(refs, {"references/output-format.md", "references/scripts.md",
+                                "references/non-interactive.md", "references/goal-refinement.md",
+                                "references/re-runs.md"})
         for ref in refs:
             self.assertTrue((SCRIPTS.parent / ref).exists())
 
