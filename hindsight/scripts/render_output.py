@@ -37,6 +37,9 @@ classify every previous finding and unresolved/partial ones must be carried
 forward under their id. Problems are warnings; unresolvable evidence is
 also listed per finding as "evidence_unverified" in the JSON sidecar.
 
+Both files record the Hindsight version that wrote them ("hindsight_version",
+from SKILL.md's frontmatter; shown on the Generated line).
+
 A finding's optional "status" (set by set_status.py) is rendered as a badge
 beside its title plus a Status line, and passes through unchanged.
 
@@ -74,6 +77,7 @@ from findings_schema import (  # noqa: E402
     assign_ids,
     load_document,
     rank_label,
+    skill_version,
 )
 import render_decision_matrix  # noqa: E402
 import verify_findings  # noqa: E402
@@ -318,13 +322,20 @@ def project_name(doc):
     return doc.get("project") or os.path.basename(os.path.abspath(root)) or root
 
 
+def version_suffix(doc):
+    """" by Hindsight X.Y.Z" for the Generated line; empty for a review
+    written before versioning (set_status.py re-renders those as they are)."""
+    version = doc.get("hindsight_version")
+    return f" by Hindsight {version}" if isinstance(version, str) and version.strip() else ""
+
+
 def render_needs_input(doc):
     lines = [f"# In Hindsight — {project_name(doc)}", ""]
     lines.append(f"- **Project root:** `{doc['root']}`")
     if doc.get("goal"):
         lines.append(f"- **User goal:** {doc['goal']}")
     lines.append(f"- **Status:** needs input (missing: {', '.join(doc['missing'])})")
-    lines.append(f"- **Generated:** {doc['generated']}")
+    lines.append(f"- **Generated:** {doc['generated']}" + version_suffix(doc))
     lines.append("")
     lines += ["## Input Needed", "", doc["question"], ""]
     if doc["hypotheses"]:
@@ -356,7 +367,7 @@ def render(doc, warnings=None):
     lines = [f"# In Hindsight — {project}", ""]
     lines.append(f"- **Project root:** `{root}`")
     lines.append(f"- **User goal:** {goal}")
-    lines.append(f"- **Generated:** {doc['generated']}")
+    lines.append(f"- **Generated:** {doc['generated']}" + version_suffix(doc))
     lines.append(f"- **Total findings:** {total}")
     lines.append("")
 
@@ -507,6 +518,7 @@ def main():
             print(f"Error: no {key} given (pass --{key} or set \"{key}\" in the document).", file=sys.stderr)
             return 1
 
+    doc["hindsight_version"] = skill_version()
     out_path = args.out or os.path.join(doc["root"], "inHindsight.md")
     json_path = args.json_out or os.path.splitext(out_path)[0] + ".json"
     history_dir = os.path.join(os.path.dirname(os.path.abspath(out_path)), HISTORY_DIR)

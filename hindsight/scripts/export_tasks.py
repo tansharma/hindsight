@@ -253,7 +253,8 @@ def issue_body(f, doc):
     body = copyable_prompt(f)
     fence = code_fence(body)
     lines += ["", "**LLM Action Prompt**", "", f"{fence}text", body, fence, ""]
-    lines.append(f"_From Hindsight finding {f['id']} (review of {doc.get('generated', 'unknown date')})._")
+    by = f", Hindsight {doc['hindsight_version']}" if doc.get("hindsight_version") else ""
+    lines.append(f"_From Hindsight finding {f['id']} (review of {doc.get('generated', 'unknown date')}{by})._")
     return "\n".join(lines)
 
 

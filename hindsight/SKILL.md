@@ -13,6 +13,8 @@ description: >
   the project's goal; writes the review to inHindsight.md (plus a
   machine-readable inHindsight.json) at the project root. Also runs
   unattended — for CI, headless runs, or another agent delegating a review.
+metadata:
+  version: "1.0.0"
 ---
 
 # Hindsight — Retrospective Architectural Review
@@ -422,14 +424,10 @@ It writes `<project_root>/inHindsight.md` (for people) and
 any existing pair into `hindsight-history/` so no review is lost.
 
 This step is presentation: every finding appears exactly once, none are
-added, dropped, or re-worded. The renderer orders the findings by bucket
-(⚡ High Impact / Low Effort, 🏗️ High / High, 🧹 Low / Low, 🕐 Low / High),
-groups each bucket by area, reproduces every `prompt` verbatim with its
-`done_when` appended, and adds the Decision Matrix, Since Last Review, No
-Findings, Dependency Health Scorecard (with its computed Health Score), and
-Cross-Reference Gap Report sections. The full template and the renderer's
-guarantees are in `references/output-format.md`; read it only if `python3`
-is unavailable and you must write the files by hand.
+added, dropped, or re-worded; the renderer orders, groups, and formats them,
+stamps the Hindsight version, and adds the computed sections. The template
+is in `references/output-format.md`; read it only if `python3` is
+unavailable and you must write the files by hand.
 
 In non-interactive mode, finish with the `HINDSIGHT: complete — …` line
 from `references/non-interactive.md`.

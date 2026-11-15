@@ -65,7 +65,9 @@ the repository root (`tests/` is not installed with the skill).
   docstring) shared by `render_output.py` and the legacy `parse_findings.py`: normalization, area and
   Impact/Effort canonicalization, and `H-NNN` id assignment. Not run
   directly.
-- `render_output.py` — Step 5's renderer. With a `scope` in the document
+- `render_output.py` — Step 5's renderer. Stamps `hindsight_version` (from
+  SKILL.md's `metadata.version`, via `findings_schema.skill_version`) into
+  both outputs, replacing any supplied value. With a `scope` in the document
   (a scoped review), it states the scope in the Executive Summary, records
   `scope.carried_forward`, requires `since_last_review` entries only for
   the previous findings in scope, and warns when a previous finding outside
@@ -156,6 +158,11 @@ CANDIDATES
 ```
 
 ## Format coupling
+
+The release version is `metadata.version` in SKILL.md's frontmatter;
+`CHANGELOG.md`'s newest entry and the `docs/` footers restate it, and a
+test fails if they disagree. Release steps are at the top of
+`CHANGELOG.md`.
 
 The findings-document shape is defined once, in `findings_schema.py`'s
 docstring. Change a field there and in SKILL.md Step 3 together. The

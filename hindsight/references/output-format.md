@@ -16,7 +16,7 @@ Contents:
 ````markdown
 # In Hindsight — <project name>
 
-- **Project root:** ... / **User goal:** ... / **Generated:** ... / **Total findings:** ...
+- **Project root:** ... / **User goal:** ... / **Generated:** <date> by Hindsight <version> / **Total findings:** ...
 
 ## Executive Summary
 <summary, then the finding count by area>
@@ -103,6 +103,6 @@ Follow these when writing the files by hand:
 ## `inHindsight.json`
 
 The normalized findings document: the contract in the docstring of
-`scripts/findings_schema.py`, with `schema_version`, `status`
+`scripts/findings_schema.py`, with `schema_version`, `hindsight_version`, `status`
 (`complete` or `needs_input`), `generated`, every finding's `id`, and
 `evidence_unverified` on findings whose citations failed verification.

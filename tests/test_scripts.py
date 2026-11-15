@@ -1846,6 +1846,78 @@ class ExportTasksTest(unittest.TestCase):
         self.assertFalse(self.target.exists())
 
 
+class VersioningTest(unittest.TestCase):
+    """SKILL.md's metadata.version is the one source; CHANGELOG.md and the
+    docs footers restate it, and every review records it."""
+
+    REPO = SCRIPTS.parent.parent
+
+    def version(self):
+        sys.path.insert(0, str(SCRIPTS))
+        try:
+            import findings_schema
+        finally:
+            sys.path.remove(str(SCRIPTS))
+        return findings_schema
+
+    def test_skill_md_declares_a_semver_version_under_metadata(self):
+        import re
+        text = (SCRIPTS.parent / "SKILL.md").read_text()
+        frontmatter = text.split("---", 2)[1]
+        self.assertRegex(frontmatter, r'\nmetadata:\n  version: "\d+\.\d+\.\d+"\n')
+        self.assertTrue(re.fullmatch(r"\d+\.\d+\.\d+", self.version().skill_version()))
+
+    def test_changelog_and_site_agree_with_skill_md(self):
+        import re
+        version = self.version().skill_version()
+        changelog = (self.REPO / "CHANGELOG.md").read_text()
+        self.assertEqual(re.findall(r"^## \[(\d+\.\d+\.\d+)\]", changelog, re.M)[0], version)
+        for page in sorted((self.REPO / "docs").glob("*.html")):
+            with self.subTest(page=page.name):
+                self.assertIn(f"<p>Version {version} · ", page.read_text())
+
+    def test_skill_version_without_a_file_or_a_version(self):
+        schema = self.version()
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertEqual(schema.skill_version(os.path.join(tmp, "missing.md")), "unknown")
+            plain = Path(tmp, "SKILL.md")
+            plain.write_text("---\nname: x\n---\n\nversion: 9.9.9 in the body does not count\n")
+            self.assertEqual(schema.skill_version(str(plain)), "unknown")
+
+    def test_reviews_record_the_version_that_wrote_them(self):
+        version = self.version().skill_version()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            doc = {"hindsight_version": "0.0.1-forged", "findings": [json_finding()]}
+            result = run("render_output.py", "--root", tmp, "--goal", "g", stdin=json.dumps(doc))
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(json.loads((root / "inHindsight.json").read_text())["hindsight_version"], version)
+            self.assertIn(f"- **Generated:** {date_today()} by Hindsight {version}\n",
+                          (root / "inHindsight.md").read_text())
+            gh = run("export_tasks.py", "--root", tmp, "--format", "gh")
+            self.assertIn(f", Hindsight {version})._", gh.stdout)
+            run("render_output.py", "--root", tmp, stdin=json.dumps({"status": "needs_input", "missing": ["goal"]}))
+            self.assertEqual(json.loads((root / "inHindsight.json").read_text())["hindsight_version"], version)
+            self.assertIn(f"by Hindsight {version}", (root / "inHindsight.md").read_text())
+
+    def test_set_status_keeps_a_pre_versioning_review_unversioned(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            run("render_output.py", "--root", tmp, "--goal", "g", stdin=json.dumps({"findings": [json_finding()]}))
+            old = json.loads((root / "inHindsight.json").read_text())
+            del old["hindsight_version"]  # as written before 1.0.0
+            (root / "inHindsight.json").write_text(json.dumps(old))
+            result = run("set_status.py", "--root", tmp, "--id", "H-001", "--status", "resolved", "--note", "n")
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertNotIn("hindsight_version", json.loads((root / "inHindsight.json").read_text()))
+            self.assertNotIn("by Hindsight", (root / "inHindsight.md").read_text())
+
+
+def date_today():
+    from datetime import date
+    return date.today().isoformat()
+
+
 class RubricTest(unittest.TestCase):
     """The Impact/Effort rubric is worded identically in the P-Prompt and
     SKILL.md, so both review paths rank findings the same way."""

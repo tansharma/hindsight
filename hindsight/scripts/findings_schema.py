@@ -6,6 +6,9 @@ A findings document is a JSON object:
 
     {
       "schema_version": 1,
+      "hindsight_version": "1.0.0",   # written by the renderer from SKILL.md's
+                                      # metadata.version; a supplied value is
+                                      # replaced. Absent in pre-1.0.0 reviews.
       "project": "<name>",            # optional; defaults to the root's basename
       "root": "<path>",               # optional if passed on the command line
       "goal": "<user goal>",          # optional if passed on the command line
@@ -86,9 +89,27 @@ Done_When) are accepted too, so prose parsed by the legacy parse_findings.py
 and older saved findings still load.
 """
 
+import os
 import re
 
 SCHEMA_VERSION = 1
+
+SKILL_MD = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "SKILL.md")
+FRONTMATTER_VERSION = re.compile(r"""^\s*version:\s*["']?([^"'\s#]+)""", re.M)
+
+
+def skill_version(path=SKILL_MD):
+    """The `version` in SKILL.md's frontmatter (under `metadata:`), or
+    "unknown" if SKILL.md is missing or has none. This is the one place the
+    version is defined; CHANGELOG.md and the docs site restate it (tested)."""
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            text = fh.read()
+    except OSError:
+        return "unknown"
+    parts = text.split("---", 2)
+    m = FRONTMATTER_VERSION.search(parts[1]) if text.startswith("---") and len(parts) == 3 else None
+    return m.group(1) if m else "unknown"
 
 AREA_ORDER = ["Architectural Patterns", "Code Quality", "Documentation Gaps"]
 
