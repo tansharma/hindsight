@@ -1,10 +1,8 @@
-# Shared helpers for Hindsight's shell scripts (list_files.sh, and the
-# retired parse_args.sh / aggregate_context.sh in tests/fixtures/
-# legacy_pipeline/). Sourced, not executed.
+# Shared helpers for list_files.sh. Sourced, not executed.
 
 BINARY_SNIFF_BYTES=8192
 
-# Directory names never descended into when listing or summarizing a project.
+# Directory names never descended into when listing a project.
 # hindsight-history/ holds Hindsight's own archived reviews.
 PRUNE_DIRS=(.git node_modules vendor dist build target .venv venv __pycache__ hindsight-history)
 
@@ -49,27 +47,4 @@ in_pruned_dir() {
     [[ "/$1" == */"$d"/* ]] && return 0
   done
   return 1
-}
-
-# Fill the global array `files` from a comma-separated list ($1) or, if $2
-# is non-empty, from a newline-delimited file ("-" for stdin). Surrounding
-# whitespace (including a CRLF's CR) and blank entries are dropped.
-read_file_list() {
-  local csv="$1" from="$2" entry trimmed
-  local -a raw=()
-  files=()
-  if [[ -n "$from" ]]; then
-    if [[ "$from" == "-" ]]; then
-      while IFS= read -r entry || [[ -n "$entry" ]]; do raw+=("$entry"); done
-    else
-      while IFS= read -r entry || [[ -n "$entry" ]]; do raw+=("$entry"); done < "$from"
-    fi
-  elif [[ -n "$csv" ]]; then
-    IFS=',' read -ra raw <<< "$csv"
-  fi
-  for entry in ${raw[@]+"${raw[@]}"}; do
-    trimmed="$(printf '%s' "$entry" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
-    [[ -n "$trimmed" ]] && files+=("$trimmed")
-  done
-  return 0
 }

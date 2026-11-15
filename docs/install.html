@@ -59,6 +59,8 @@ cd hindsight</code></pre>
 
     <p>The commands below copy the folder <em>into</em> the <code>skills/</code> directory, so running the same command again updates an existing install in place. (Copying to <code>…/skills/hindsight</code> instead would nest a second <code>hindsight/</code> inside an existing install.) Files deleted from the skill in a newer version aren't removed by an update. To get an exact copy, delete the installed <code>hindsight</code> folder first.</p>
 
+    <p><strong>Windows users:</strong> the PowerShell commands below are <strong>untested</strong>. They are written to do the same as the macOS / Linux commands but have not been run on Windows. Check that the installed folder ends up at <code>…\skills\hindsight\SKILL.md</code>, and please <a href="https://github.com/tansharma/hindsight/issues">open an issue</a> if one fails.</p>
+
     <h3>Claude Code</h3>
 
     <ul>
@@ -71,9 +73,10 @@ cd hindsight</code></pre>
     <pre><code>mkdir -p ~/.claude/skills
 cp -R hindsight ~/.claude/skills/</code></pre>
 
-    <p class="meta">Windows (PowerShell):</p>
+    <p class="meta">Windows (PowerShell) — untested:</p>
 
-    <pre><code>New-Item -ItemType Directory -Force -Path "$env:USERPROFILE\.claude\skills" | Out-Null
+    <pre><code># Untested: not yet run on Windows. Check the result before relying on it.
+New-Item -ItemType Directory -Force -Path "$env:USERPROFILE\.claude\skills" | Out-Null
 Copy-Item -Recurse -Force hindsight "$env:USERPROFILE\.claude\skills"</code></pre>
 
     <p>For a project-level install, use <code>.claude/skills</code> (<code>.claude\skills</code> on Windows) at the repo root as the destination instead.</p>
@@ -92,9 +95,10 @@ Copy-Item -Recurse -Force hindsight "$env:USERPROFILE\.claude\skills"</code></pr
     <pre><code>mkdir -p ~/.codex/skills
 cp -R hindsight ~/.codex/skills/</code></pre>
 
-    <p class="meta">Windows (PowerShell):</p>
+    <p class="meta">Windows (PowerShell) — untested:</p>
 
-    <pre><code>New-Item -ItemType Directory -Force -Path "$env:USERPROFILE\.codex\skills" | Out-Null
+    <pre><code># Untested: not yet run on Windows. Check the result before relying on it.
+New-Item -ItemType Directory -Force -Path "$env:USERPROFILE\.codex\skills" | Out-Null
 Copy-Item -Recurse -Force hindsight "$env:USERPROFILE\.codex\skills"</code></pre>
 
     <p>For a project-level install, use <code>.codex/skills</code> (<code>.codex\skills</code> on Windows) at the repo root instead.</p>
@@ -113,9 +117,10 @@ Copy-Item -Recurse -Force hindsight "$env:USERPROFILE\.codex\skills"</code></pre
     <pre><code>mkdir -p ~/.gemini/skills
 cp -R hindsight ~/.gemini/skills/</code></pre>
 
-    <p class="meta">Windows (PowerShell):</p>
+    <p class="meta">Windows (PowerShell) — untested:</p>
 
-    <pre><code>New-Item -ItemType Directory -Force -Path "$env:USERPROFILE\.gemini\skills" | Out-Null
+    <pre><code># Untested: not yet run on Windows. Check the result before relying on it.
+New-Item -ItemType Directory -Force -Path "$env:USERPROFILE\.gemini\skills" | Out-Null
 Copy-Item -Recurse -Force hindsight "$env:USERPROFILE\.gemini\skills"</code></pre>
 
     <p>The <code>~/.agents/skills/</code> alias maps to <code>%USERPROFILE%\.agents\skills\</code> on Windows; use whichever your Gemini CLI install already has set up. For a project-level install, use <code>.gemini/skills</code> (or <code>.agents/skills</code>) at the repo root instead.</p>
@@ -136,9 +141,10 @@ Copy-Item -Recurse -Force hindsight "$env:USERPROFILE\.gemini\skills"</code></pr
     <pre><code>mkdir -p ~/.copilot/skills
 cp -R hindsight ~/.copilot/skills/</code></pre>
 
-    <p class="meta">Windows (PowerShell):</p>
+    <p class="meta">Windows (PowerShell) — untested:</p>
 
-    <pre><code>New-Item -ItemType Directory -Force -Path "$env:USERPROFILE\.copilot\skills" | Out-Null
+    <pre><code># Untested: not yet run on Windows. Check the result before relying on it.
+New-Item -ItemType Directory -Force -Path "$env:USERPROFILE\.copilot\skills" | Out-Null
 Copy-Item -Recurse -Force hindsight "$env:USERPROFILE\.copilot\skills"</code></pre>
 
     <p>For a project-level install, use <code>.github/skills</code> (<code>.github\skills</code> on Windows) at the repo root instead. A project-level <code>.claude/skills/hindsight/</code> install is shared by Claude Code and Copilot.</p>

@@ -25,7 +25,6 @@ Exit codes:
 import json
 import sys
 
-REQUIRED_KEYS = ["solution", "impact", "effort", "argument"]
 MIN_CANDIDATES = 3
 
 

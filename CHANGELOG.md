@@ -12,6 +12,19 @@ frontmatter. Every review records the version that wrote it, as
 the version in the `docs/` page footers (the tests check that all three
 agree).
 
+## [Unreleased]
+
+### Removed
+- The retired standalone pipeline (`parse_args.sh`, `aggregate_context.sh`,
+  `build_prompt.sh`, `parse_findings.py`, `mock_review.txt`) from
+  `tests/fixtures/legacy_pipeline/`, with its 45 tests, and the file-list
+  reader in `common.sh` that only it used. None of it shipped with the skill;
+  it remains in git history (`git show 19b853a:tests/fixtures/legacy_pipeline/`).
+  The renderer still accepts the pre-JSON finding keys.
+
+### Changed
+- `docs/install.html` labels every Windows PowerShell command as untested.
+
 ## [1.0.0] — 2026-11-15
 
 First versioned release. Reviews written before it have no

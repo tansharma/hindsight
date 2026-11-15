@@ -19,9 +19,9 @@ the repository root (`tests/` is not installed with the skill).
   untracked, not-ignored files), after the same filters, plus their direct
   dependents from `import_graph.py --dependents-of`; deleted files are not
   listed. Exits 1 outside a git work tree or for an unknown ref.
-- `common.sh` — helpers sourced by the shell scripts: the pruned-directory
-  list, binary sniffing, the secret-filename patterns, and the shared
-  `--files` / `--files-from` reader. Not run directly.
+- `common.sh` — helpers sourced by `list_files.sh`: the pruned-directory
+  list, binary sniffing, and the secret-filename patterns. Not run
+  directly.
 - `import_graph.py` — Step 2's dependency analysis for Python, JS/TS and Swift.
   `--dependents-of <changed.txt>` prints, instead of the JSON, the listed
   files that directly import a changed file (module-level or deferred; for
@@ -62,7 +62,7 @@ the repository root (`tests/` is not installed with the skill).
   detected target (including a hand-made `.xcodeproj` with no manifest)
   count as `unsupported_files`.
 - `findings_schema.py` — the findings-document contract (documented in its
-  docstring) shared by `render_output.py` and the legacy `parse_findings.py`: normalization, area and
+  docstring) used by `render_output.py`: normalization, area and
   Impact/Effort canonicalization, and `H-NNN` id assignment. Not run
   directly.
 - `render_output.py` — Step 5's renderer. Stamps `hindsight_version` (from
@@ -168,16 +168,3 @@ The findings-document shape is defined once, in `findings_schema.py`'s
 docstring. Change a field there and in SKILL.md Step 3 together. The
 Health Score numbers live in `findings_schema.SCORE_DEDUCTIONS`;
 `references/output-format.md` restates them (tested).
-
-## The retired standalone pipeline
-
-Before the skill ran end to end inside an agent, a scripted chain did the
-review: `parse_args.sh` → `aggregate_context.sh` → `build_prompt.sh` →
-(an LLM) → `parse_findings.py` → `render_output.py`. Nothing in the live
-skill uses the first four, and `build_prompt.sh` was a second copy of the
-review method that drifted from SKILL.md, so they now live in the
-repository's `tests/fixtures/legacy_pipeline/` (still tested, not
-installed). If you revive them, keep `build_prompt.sh`'s output format
-and Impact/Effort rubric in step with SKILL.md (the rubric is tested) and
-`parse_findings.py`'s `FIELD_ALIASES` in step with any field that should
-parse from bold-label prose.

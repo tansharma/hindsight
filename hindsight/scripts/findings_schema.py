@@ -1,6 +1,5 @@
 """The findings contract: what render_output.py accepts and writes to
-inHindsight.json (also used by the retired parse_findings.py in
-tests/fixtures/legacy_pipeline/).
+inHindsight.json.
 
 A findings document is a JSON object:
 
@@ -85,8 +84,7 @@ nobody to ask — it records a needs-input document instead:
 
 A bare array of findings is accepted as a document with only "findings".
 The pre-JSON keys (Area, Issue, Rationale, Impact/Effort, LLM_Prompt,
-Done_When) are accepted too, so prose parsed by the legacy parse_findings.py
-and older saved findings still load.
+Done_When) are still accepted, so findings saved in that older format load.
 """
 
 import os
