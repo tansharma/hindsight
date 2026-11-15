@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "status": "needs_input",
+  "root": "/projects/beta",
+  "missing": [
+    "goal"
+  ],
+  "question": "What is the goal?",
+  "hypotheses": [],
+  "generated": "2026-11-10"
+}

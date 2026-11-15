@@ -1,0 +1,99 @@
+{
+  "schema_version": 1,
+  "status": "complete",
+  "project": "alpha",
+  "root": "/projects/alpha",
+  "goal": "fixture goal",
+  "generated": "2026-09-15",
+  "findings": [
+    {
+      "id": "H-003",
+      "area": "Code Quality",
+      "title": "a3",
+      "issue": "x",
+      "rationale": "y",
+      "impact": "High",
+      "effort": "Low",
+      "evidence": [],
+      "prompt": "z",
+      "done_when": "d"
+    },
+    {
+      "id": "H-004",
+      "area": "Code Quality",
+      "title": "a4",
+      "issue": "x",
+      "rationale": "y",
+      "impact": "High",
+      "effort": "Low",
+      "evidence": [],
+      "prompt": "z",
+      "done_when": "d"
+    },
+    {
+      "id": "H-005",
+      "area": "Code Quality",
+      "title": "a5",
+      "issue": "x",
+      "rationale": "y",
+      "impact": "High",
+      "effort": "Low",
+      "evidence": [],
+      "prompt": "z",
+      "done_when": "d"
+    },
+    {
+      "id": "H-006",
+      "area": "Code Quality",
+      "title": "a6",
+      "issue": "x",
+      "rationale": "y",
+      "impact": "High",
+      "effort": "Low",
+      "evidence": [],
+      "prompt": "z",
+      "done_when": "d"
+    }
+  ],
+  "no_findings": [],
+  "dependency_scorecard": {
+    "risky_packages": [],
+    "cycles": [],
+    "volatile_hubs": [],
+    "deprecated_apis": [],
+    "health_score": 80,
+    "score_breakdown": []
+  },
+  "since_last_review": [
+    {
+      "id": "H-001",
+      "title": "a1",
+      "status": "resolved",
+      "evidence": "e"
+    },
+    {
+      "id": "H-002",
+      "title": "a2",
+      "status": "resolved",
+      "evidence": "e"
+    },
+    {
+      "id": "H-003",
+      "title": "a3",
+      "status": "unresolved",
+      "evidence": "e"
+    },
+    {
+      "id": "H-004",
+      "title": "a4",
+      "status": "partial",
+      "evidence": "e"
+    },
+    {
+      "id": "H-005",
+      "title": "a5",
+      "status": "unresolved",
+      "evidence": "e"
+    }
+  ]
+}

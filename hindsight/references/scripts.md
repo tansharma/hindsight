@@ -107,6 +107,22 @@ the repository root (`tests/` is not installed with the skill).
   commit; the commit is format-checked only, not looked up in git. On the
   next review the status is prior evidence the reviewer verifies
   (`references/re-runs.md`).
+- `rollup.py` — not part of a review: `--roots <root> ... [--out
+  rollup.md] [--stale-days 60] [--today YYYY-MM-DD]` reads each root's
+  `inHindsight.json` and `hindsight-history/*.json` and writes one section
+  per project: a one-row table for the latest complete review (health
+  score, open, resolved, won't-fix, review date, age in days) and a trend
+  line across every complete review (date, health score, open count, and
+  the first-to-last change). Open is the latest review's findings minus
+  those hand-marked resolved/wontfix; resolved is distinct ids ever
+  classified resolved in `since_last_review` plus hand-marked ones. A
+  review more than `--stale-days` old is flagged in its row, under the
+  project, and in the page header. A review's date is `generated`, else the
+  archive filename's date, else the file's mtime. Missing roots, unreadable
+  or truncated files, and needs-input runs are noted per project, never
+  fatal. Exits 1 only for a bad `--today`/`--stale-days` or an unwritable
+  `--out`. Test fixtures: `tests/fixtures/rollup/` (re-included in
+  `.gitignore`).
 - `render_decision_matrix.py` — the table renderer `render_output.py` uses
   for Step 4. Also usable on its own to preview a matrix: takes a JSON
   array of `{solution, impact, effort, argument}` candidates (stdin or a

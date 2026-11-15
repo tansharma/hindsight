@@ -42,7 +42,10 @@ bash "$S/list_files.sh" --root path/to/project --since main          # only file
 python3 "$S/import_graph.py" --root path/to/project --files-from files.txt &gt; graph.json
 python3 "$S/render_output.py" --check --root path/to/project --goal "..." findings.json   # validate only
 python3 "$S/render_output.py" --root path/to/project --goal "..." findings.json           # write inHindsight.md/.json
-python3 "$S/set_status.py" --root path/to/project --id H-004 --status resolved --note "..." [--commit &lt;sha&gt;]   # mark a finding</code></pre>
+python3 "$S/set_status.py" --root path/to/project --id H-004 --status resolved --note "..." [--commit &lt;sha&gt;]   # mark a finding
+python3 "$S/rollup.py" --roots path/to/app path/to/api --out rollup.md   # one page across several projects</code></pre>
+
+    <p><code>rollup.py</code> summarizes the reviews already written in several projects: for each one, a table with the health score, open, resolved and won't-fix findings, the review date and its age in days, and a trend line across its archived reviews. A review more than 60 days old is flagged (change it with <code>--stale-days</code>). It reads only the saved <code>inHindsight.json</code> files and <code>hindsight-history/</code>, with no model and no network, and notes rather than fails on missing or unreadable files.</p>
 
     <p><code>set_status.py</code> records that you resolved, partly resolved, or decided not to fix (<code>wontfix</code>) a finding. It updates <code>inHindsight.json</code> and rewrites <code>inHindsight.md</code> in place with a status badge beside the finding's title; nothing is archived and no finding is renumbered. The next review treats the status as a claim to verify against the code, not as proof.</p>
 

@@ -1,0 +1,48 @@
+{
+  "schema_version": 1,
+  "status": "complete",
+  "project": "beta",
+  "root": "/projects/beta",
+  "goal": "fixture goal",
+  "generated": "2026-06-10",
+  "findings": [
+    {
+      "id": "H-001",
+      "area": "Code Quality",
+      "title": "b1",
+      "issue": "x",
+      "rationale": "y",
+      "impact": "High",
+      "effort": "Low",
+      "evidence": [],
+      "prompt": "z",
+      "done_when": "d"
+    },
+    {
+      "id": "H-002",
+      "area": "Code Quality",
+      "title": "b2",
+      "issue": "x",
+      "rationale": "y",
+      "impact": "High",
+      "effort": "Low",
+      "evidence": [],
+      "prompt": "z",
+      "done_when": "d"
+    },
+    {
+      "id": "H-003",
+      "area": "Code Quality",
+      "title": "b3",
+      "issue": "x",
+      "rationale": "y",
+      "impact": "High",
+      "effort": "Low",
+      "evidence": [],
+      "prompt": "z",
+      "done_when": "d"
+    }
+  ],
+  "no_findings": [],
+  "since_last_review": []
+}

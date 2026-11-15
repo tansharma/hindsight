@@ -9,6 +9,7 @@ SKILL.md tells the agent to invoke it.
 """
 
 import json
+from datetime import datetime
 import os
 import stat
 import subprocess
@@ -1614,6 +1615,87 @@ class ScopedReviewTest(unittest.TestCase):
         md = (self.root / "inHindsight.md").read_text()
         self.assertNotIn("**Scope:**", md)
         self.assertNotIn("scope", self.sidecar())
+
+
+ROLLUP = FIXTURES / "rollup"
+
+
+class RollupTest(unittest.TestCase):
+    """rollup.py across the two fixture roots (tests/fixtures/rollup)."""
+
+    def rollup(self, *roots, today="2026-11-15", extra=()):
+        args = ["--roots", *map(str, roots)] + (["--today", today] if today else []) + list(extra)
+        result = run("rollup.py", *args, isolated=True)
+        return result
+
+    def page(self, *roots, **kw):
+        result = self.rollup(*roots, **kw)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return result.stdout
+
+    def section(self, md, name):
+        return md.split(f"## {name}\n", 1)[1].split("\n## ", 1)[0]
+
+    def test_runs_across_the_fixture_roots_and_flags_the_stale_review(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "rollup.md"
+            result = self.rollup(ROLLUP / "alpha", ROLLUP / "beta", extra=["--out", str(out)])
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stdout, "")
+            md = out.read_text()
+        self.assertIn("Rolled up 2 project(s) to", result.stderr)
+        self.assertIn("stale reviews: beta (87 days).", result.stderr)
+        self.assertIn("- **⚠️ Stale (over 60 days):** beta (87 days)\n", md)
+        alpha, beta = self.section(md, "alpha"), self.section(md, "beta")
+        self.assertIn("| 90% | 1 | 4 | 1 | 2026-11-01 | 14 |\n", alpha)
+        self.assertNotIn("stale", alpha)
+        self.assertIn("| 70% | 2 | 1 | 0 | 2026-08-20 | 87 ⚠️ stale |\n", beta)
+        self.assertIn("> ⚠️ The latest complete review is 87 days old (more than 60 days)", beta)
+
+    def test_trend_lines_from_history(self):
+        md = self.page(ROLLUP / "alpha", ROLLUP / "beta")
+        self.assertIn("**Trend:** 2026-08-01 72% · 5 open → 2026-09-15 80% · 4 open → 2026-11-01 90% · 1 open "
+                      "(health +18 pts, open −4 over 3 reviews)\n", md)
+        # A review without a scorecard shows n/a and drops the health change.
+        self.assertIn("**Trend:** 2026-06-10 n/a · 3 open → 2026-08-20 70% · 2 open (open −1 over 2 reviews)\n", md)
+
+    def test_tolerates_missing_and_broken_inputs(self):
+        with tempfile.TemporaryDirectory() as empty:
+            md = self.page(ROLLUP / "beta", empty, "/no/such/root")
+            name = Path(empty).name
+        beta = self.section(md, "beta")
+        self.assertIn("- Skipped `hindsight-history/2026-09-30T120000-inHindsight.json`: JSONDecodeError.", beta)
+        self.assertIn("- The latest run stopped for input (missing: goal); figures are from the last complete "
+                      "review.", beta)
+        self.assertIn("- No review found (no `inHindsight.json` or `hindsight-history/`).",
+                      self.section(md, name))
+        self.assertIn("- Root is not a directory; nothing to read.", self.section(md, "root"))
+        self.assertIn("- **Projects:** 3\n", md)
+
+    def test_stale_threshold_and_default_today(self):
+        self.assertIn("**Stale (over 87 days):** none", self.page(ROLLUP / "beta", extra=["--stale-days", "87"]))
+        self.assertIn("beta (87 days)", self.page(ROLLUP / "beta", extra=["--stale-days", "86"]))
+        self.assertIn("## alpha", self.page(ROLLUP / "alpha", today=None))
+
+    def test_single_review_dates_from_filename_or_mtime(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "gamma"
+            (root / "hindsight-history").mkdir(parents=True)
+            undated = {"status": "complete", "project": "Gamma Svc", "findings": [json_finding(id="H-001")]}
+            (root / "hindsight-history" / "2026-01-05T000000-inHindsight.json").write_text(json.dumps(undated))
+            (root / "inHindsight.json").write_text(json.dumps(undated))
+            stamp = datetime(2026, 3, 1).timestamp()
+            os.utime(root / "inHindsight.json", (stamp, stamp))
+            md = self.page(root)
+        self.assertIn("## Gamma Svc\n", md)  # the document's project name wins
+        self.assertIn("**Trend:** 2026-01-05 n/a · 1 open → 2026-03-01 n/a · 1 open (open ±0 over 2 reviews)", md)
+        self.assertIn("| n/a | 1 | 0 | 0 | 2026-03-01 | 259 ⚠️ stale |", md)
+
+    def test_bad_arguments(self):
+        self.assertEqual(self.rollup(ROLLUP / "alpha", today="15/11/2026").returncode, 1)
+        self.assertEqual(self.rollup(ROLLUP / "alpha", extra=["--stale-days", "-1"]).returncode, 1)
+        self.assertEqual(self.rollup(ROLLUP / "alpha", extra=["--out", "/no/such/dir/rollup.md"]).returncode, 1)
+        self.assertEqual(run("rollup.py").returncode, 2)
 
 
 class RubricTest(unittest.TestCase):

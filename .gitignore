@@ -5,6 +5,9 @@ hindsight-workspace/
 inHindsight.md
 inHindsight.json
 hindsight-history/
+# rollup.py's test fixtures are saved reviews on purpose
+!tests/fixtures/rollup/*/inHindsight.json
+!tests/fixtures/rollup/*/hindsight-history/
 
 # repo-specific-user-notes
 feedback.md

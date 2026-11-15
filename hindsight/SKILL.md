@@ -491,6 +491,7 @@ Steps 1, 2 and 5 give the exact command for each script a review runs
 `common.sh`, `findings_schema.py`, and `verify_findings.py` are sourced or
 imported by these and never run directly. `set_status.py` is not part of a
 review: run it only when the user asks to mark a finding resolved, partial
-or wontfix (`--root <path> --id H-NNN --status <s> --note "<why>"`).
+or wontfix (`--root <path> --id H-NNN --status <s> --note "<why>"`); nor is
+`rollup.py`, which summarizes several projects' reviews (`--roots a b --out f.md`).
 Script internals, the findings-document contract, and maintainer notes are
 in `references/scripts.md`; read it only if a script fails unexpectedly.
