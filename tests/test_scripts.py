@@ -548,6 +548,119 @@ class ImportGraphTest(unittest.TestCase):
         self.assertIn("could not parse bad.py", result.stderr)
         self.assertEqual(self.imports(g)["good.py"], ["bad.py"])
 
+    def swift_fixture(self):
+        root = FIXTURES / "swift_pkg"
+        files = sorted(str(p.relative_to(root)) for p in root.rglob("*") if p.is_file())
+        result = run("import_graph.py", "--root", str(root), *files, isolated=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return result, json.loads(result.stdout)
+
+    def test_swift_two_package_fixture_reports_the_planted_cycle(self):
+        result, g = self.swift_fixture()
+        self.assertEqual(g["cycles"], [["PkgA/Sources/Core", "PkgB/Sources/Storage"]])
+        self.assertEqual(g["languages"], {"swift": 5})
+        self.assertEqual(self.imports(g), {
+            "PkgA/Sources/Core": ["PkgB/Sources/Storage"],
+            "PkgA/Sources/Net": ["PkgA/Sources/Core"],        # custom path:, commented imports ignored
+            "PkgA/Tests/CoreTests": ["PkgA/Sources/Core"],    # @testable import
+            "PkgB/Sources/Storage": ["PkgA/Sources/Core"],
+            "PkgB/Sources/Sync": ["PkgB/Sources/Storage"],
+        })
+        self.assertEqual(g["parse_errors"], [])
+        self.assertIn("1 cycle(s)", result.stderr)
+
+    def test_swift_fixture_hub_and_third_party_packages(self):
+        _, g = self.swift_fixture()
+        self.assertEqual([(h["path"], h["fan_in"], h["markers"]) for h in g["volatile_hubs"]],
+                         [("PkgA/Sources/Core", 3, 1)])
+        # Keyed by Package.resolved identity: via .product(package:) for
+        # Logging, by case-insensitive name for Alamofire. Apple modules omitted.
+        self.assertEqual(g["external_packages"], {
+            "alamofire": ["PkgA/Sources/Net/Client.swift"],
+            "swift-log": ["PkgB/Sources/Sync/Sync.swift"]})
+        self.assertEqual(g["declared_packages"], {"alamofire": "5.8.1", "swift-log": "1.5.4"})
+        # README, two Package.swift manifests, Package.resolved.
+        self.assertEqual(g["unsupported_files"], 4)
+
+    def test_swift_output_keeps_the_existing_shape(self):
+        _, swift = self.swift_fixture()
+        self.write({"a.py": "import b\n", "b.py": ""})
+        _, python = self.graph("a.py", "b.py")
+        self.assertEqual(list(swift), list(python))
+        self.assertEqual(list(swift["modules"][0]), list(python["modules"][0]))
+        self.assertEqual(list(swift["volatile_hubs"][0]), ["path", "fan_in", "markers", "churn"])
+
+    def test_swift_xcodegen_targets_from_project_yml(self):
+        self.write({
+            "project.yml": (
+                "name: Demo\n"
+                "options:\n"
+                "  bundleIdPrefix: com.example\n"
+                "targets:\n"
+                "  Demo-App:   # module name is Demo_App\n"
+                "    type: application\n"
+                "    platform: iOS\n"
+                "    sources:\n"
+                "      - App\n"
+                "      - path: Shared/UI\n"
+                "        excludes:\n"
+                "          - \"**/*.md\"\n"
+                "    dependencies:\n"
+                "      - target: Kit\n"
+                "  Kit:\n"
+                "    type: framework\n"
+                "    sources: [Kit, \"Shared/Model\"]\n"
+                "  Widgets:\n"
+                "    sources: Widgets\n"
+                "schemes:\n"
+                "  Demo-App:\n"
+                "    sources: NotATarget\n"
+            ),
+            "App/Main.swift": "import SwiftUI\nimport Kit\nimport Lottie\n",
+            "Shared/UI/Theme.swift": "import Kit\n",
+            "Kit/Kit.swift": "import Foundation\n",
+            "Shared/Model/User.swift": "import Demo_App\n",
+            "Widgets/Widget.swift": "import WidgetKit\nimport Kit\n",
+            "Scripts/tool.swift": "import Kit\n",
+            "NotATarget/x.swift": "import Kit\n",
+            "Demo.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved": json.dumps({
+                "object": {"pins": [{"package": "Lottie", "repositoryURL": "https://example.invalid/lottie",
+                                     "state": {"branch": None, "revision": "abc", "version": "4.4.0"}}]},
+                "version": 1}),
+        })
+        _, g = self.graph("project.yml", "App/Main.swift", "Shared/UI/Theme.swift", "Kit/Kit.swift",
+                          "Shared/Model/User.swift", "Widgets/Widget.swift", "Scripts/tool.swift",
+                          "NotATarget/x.swift")
+        self.assertEqual(self.imports(g), {"App": ["Kit"], "Kit": ["App"], "Widgets": ["Kit"]})
+        self.assertEqual(g["cycles"], [["App", "Kit"]])
+        self.assertEqual(g["external_packages"], {"lottie": ["App/Main.swift"]})
+        self.assertEqual(g["declared_packages"], {"lottie": "4.4.0"})
+        # project.yml plus the two Swift files outside every target.
+        self.assertEqual(g["unsupported_files"], 3)
+
+    def test_swift_without_a_manifest_and_alongside_python(self):
+        self.write({"a.py": "import b\n", "b.py": "", "Loose.swift": "import Foundation\nimport Other\n"})
+        _, g = self.graph("a.py", "b.py", "Loose.swift")
+        self.assertEqual(g["languages"], {"python": 2})
+        self.assertEqual(self.imports(g), {"a.py": ["b.py"], "b.py": []})
+        self.assertEqual(g["unsupported_files"], 1)
+        self.assertEqual(g["external_packages"], {})
+
+    def test_swift_target_churn_counts_commits_not_files(self):
+        self.write({
+            "Package.swift": 'let package = Package(name: "P", targets: [.target(name: "Lib")])\n',
+            "Sources/Lib/A.swift": "", "Sources/Lib/B.swift": "",
+        })
+        git = ["git", "-c", "user.name=t", "-c", "user.email=t@example.com"]
+        subprocess.run(["git", "init", "-q"], cwd=self.root, check=True)
+        for n in range(2):  # each commit touches both files
+            for name in ("A", "B"):
+                (self.root / f"Sources/Lib/{name}.swift").write_text(f"// {n}\n")
+            subprocess.run(git + ["add", "-A"], cwd=self.root, check=True)
+            subprocess.run(git + ["commit", "-qm", f"c{n}"], cwd=self.root, check=True)
+        _, g = self.graph("Sources/Lib/A.swift", "Sources/Lib/B.swift")
+        self.assertEqual([(m["path"], m["churn"]) for m in g["modules"]], [("Sources/Lib", 2)])
+
     def test_output_is_deterministic_and_works_isolated(self):
         self.write({"b.py": "import a\n", "a.py": "import b\n"})
         first = run("import_graph.py", "--root", str(self.root), "b.py", "a.py").stdout

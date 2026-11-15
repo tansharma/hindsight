@@ -17,7 +17,7 @@ the repository root (`tests/` is not installed with the skill).
 - `common.sh` — helpers sourced by the shell scripts: the pruned-directory
   list, binary sniffing, the secret-filename patterns, and the shared
   `--files` / `--files-from` reader. Not run directly.
-- `import_graph.py` — Step 2's dependency analysis for Python and JS/TS:
+- `import_graph.py` — Step 2's dependency analysis for Python, JS/TS and Swift. For Python and JS/TS:
   internal import graph (Python via `ast`; resolves package, `src/`-layout,
   relative, same-directory, and nested-project-root imports; skips `TYPE_CHECKING`-guarded and
   TypeScript type-only imports), function-local `deferred_imports` (they
@@ -28,6 +28,30 @@ the repository root (`tests/` is not installed with the skill).
   `pyproject.toml`, and `package-lock.json` deprecations. Output is sorted
   and deterministic; no network access. Syntax errors are reported in
   `parse_errors`, not fatal.
+  **Swift** is analysed per build target, in the same output shape, without
+  calling the Swift toolchain. Targets come from each `Package.swift`
+  (regex: `.target`, `.executableTarget`, `.testTarget`, `.macro`,
+  `.plugin` with a literal `name:`; `path:` or the `Sources/<name>` /
+  `Tests/<name>` defaults) and each XcodeGen `project.yml` (line parsing of
+  every target's `sources`), found in a listed Swift file's directory or
+  any ancestor up to the root, so a repository with several packages
+  works. A module entry is one target: `path` is its source directory,
+  `language` is `swift`, `markers` sums its files' comment markers, and
+  `churn` counts commits touching any of its files. Each listed Swift file
+  belongs to the target whose source path is its longest prefix; its
+  `import X` lines (including `@testable import` and `import struct X.Y`,
+  comments stripped) become edges to target `X`. Imports that match no
+  target and no Apple/toolchain module go to `external_packages` with the
+  importing files, keyed by the package identity when a
+  `.product(name:, package:)` entry or a `Package.resolved` pin names it,
+  otherwise by the module name. `Package.resolved` pins (format 1-3, next
+  to a manifest or inside an `.xcodeproj`/`.xcworkspace` beside one) are
+  added to `declared_packages` as identity → version. Limits: targets
+  built from variables or loops in `Package.swift`, SwiftPM `exclude:` /
+  `sources:`, XcodeGen `include:` files, flow-style target mappings and
+  `PRODUCT_MODULE_NAME` overrides are not read; Swift files outside every
+  detected target (including a hand-made `.xcodeproj` with no manifest)
+  count as `unsupported_files`.
 - `findings_schema.py` — the findings-document contract (documented in its
   docstring) shared by `render_output.py` and the legacy `parse_findings.py`: normalization, area and
   Impact/Effort canonicalization, and `H-NNN` id assignment. Not run

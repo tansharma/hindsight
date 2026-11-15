@@ -179,14 +179,16 @@ intended" in place before "what actually happened" can color it.
    FILES
    ```
 
-   For Python and JavaScript/TypeScript it reports internal imports,
+   For Python, JavaScript/TypeScript and Swift it reports internal imports,
    circular-import sets (`cycles`), heavily imported modules with
    volatility signals (`volatile_hubs`), imported vs declared third-party
    packages, and `package-lock.json` deprecations, from local files and git
    history only. Imports that never run at import time (`if
    TYPE_CHECKING:`, TypeScript type-only) are not edges; function-local
-   Python imports are listed as `deferred_imports`. Assess files in other
-   languages by reading them.
+   Python imports are listed as `deferred_imports`. A Swift module is a
+   build target (SwiftPM or XcodeGen) and its `path` is the target's source
+   directory; Swift files outside every target count as `unsupported_files`.
+   Assess those, and files in other languages, by reading them.
 
 ## Step 3 — The Retrospective Analysis
 
@@ -237,12 +239,12 @@ registries, install or run packages, or contact the network. Four lists:
   `verified: false`, and `basis` says so. Unverified entries weigh less in
   the score and are labelled in the report.
 - **`cycles`** — `{modules, evidence}`: internal modules that import each
-  other. For Python and JS/TS, copy the import graph's cycles as-is (it is
-  deterministic; don't add or drop any); for other languages, add them
-  only with file-level evidence.
+  other. For Python, JS/TS and Swift targets, copy the import graph's
+  cycles as-is (it is deterministic; don't add or drop any); for other
+  languages, add them only with file-level evidence.
 - **`volatile_hubs`** — `{module, fan_in, signals}`: heavily imported
-  modules showing instability (markers, churn); for Python and JS/TS, use
-  the import graph's list.
+  modules showing instability (markers, churn); for Python, JS/TS and
+  Swift targets, use the import graph's list.
 - **`deprecated_apis`** — `{api, location, replacement}`: deprecated APIs
   the code actually calls, with the call site and the replacement.
 
