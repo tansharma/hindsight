@@ -9,6 +9,7 @@ and never runs a language toolchain.
 Usage:
     scripts/import_graph.py --root <path> --files-from <list.txt | ->
     scripts/import_graph.py --root <path> a.py src/b.ts ...
+    scripts/import_graph.py --root <path> --files-from <list> --dependents-of <changed.txt>
 
 Paths are relative to --root (scripts/list_files.sh output works as-is).
 Prints one JSON object to stdout:
@@ -58,6 +59,13 @@ no target and no Apple/toolchain module are reported in external_packages
 by the module name. Package.resolved pins (next to a manifest, or inside
 an .xcodeproj/.xcworkspace beside one) are added to declared_packages as
 identity -> version (or branch/revision).
+
+With --dependents-of, it prints instead (one per line, sorted) the listed
+files that directly depend on a file named in <changed.txt>: they import
+it, at module level or deferred. For Swift, a changed file stands for its
+target, and every listed file of a target that imports that target is a
+dependent. Changed files themselves are not printed. list_files.sh --since
+uses this to scope a review.
 
 A volatile hub is a module imported by at least HUB_MIN_FAN_IN other
 modules that also shows a volatility signal: a TODO/FIXME/HACK/XXX/
@@ -866,6 +874,27 @@ def analyze(root, paths):
     """Build the import-graph report (the JSON object in this module's
     docstring) for `paths`, relative to `root`. Paths that aren't files are
     ignored; files that don't parse are listed in parse_errors."""
+    return analyze_with_owners(root, paths)[0]
+
+
+def direct_dependents(result, swift_owner, changed):
+    """Listed files that directly import (at module level or deferred) a
+    module holding one of the `changed` paths, minus the changed paths."""
+    changed = {clean_path(p) for p in changed if clean_path(p)}
+    edges = {m["path"]: set(m["imports"]) for m in result["modules"]}
+    for d in result["deferred_imports"]:
+        edges[d["path"]] |= set(d["imports"])
+    hit = {swift_owner.get(p, p) for p in changed} & set(edges)
+    dependent_nodes = {node for node, targets in edges.items() if targets & hit}
+    files = set()
+    for node in dependent_nodes:
+        owned = [p for p, n in swift_owner.items() if n == node]
+        files.update(owned or [node])
+    return sorted(files - changed)
+
+
+def analyze_with_owners(root, paths):
+    """analyze(), plus the {swift file: target node} map behind it."""
     paths = sorted({clean_path(p) for p in paths if clean_path(p)})
     paths = [p for p in paths if os.path.isfile(os.path.join(root, p))]
     stdlib = stdlib_modules()
@@ -953,13 +982,15 @@ def analyze(root, paths):
         "declared_packages": dict(sorted(declared.items())),
         "lockfile_deprecations": lockfile_deprecations(root, parse_errors),
         "parse_errors": parse_errors,
-    }
+    }, swift_owner
 
 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--root", required=True)
     parser.add_argument("--files-from")
+    parser.add_argument("--dependents-of", metavar="CHANGED_LIST",
+                        help="print the listed files that directly import a file in this list")
     parser.add_argument("files", nargs="*")
     args = parser.parse_args()
 
@@ -978,6 +1009,15 @@ def main():
     if not paths:
         print("Error: give files as arguments or with --files-from.", file=sys.stderr)
         return 1
+
+    if args.dependents_of:
+        if not os.path.isfile(args.dependents_of):
+            print(f"Error: --dependents-of '{args.dependents_of}' not found.", file=sys.stderr)
+            return 1
+        result, owner = analyze_with_owners(args.root, paths)
+        for path in direct_dependents(result, owner, read_text(args.dependents_of).splitlines()):
+            print(path)
+        return 0
 
     result = analyze(args.root, paths)
     print(json.dumps(result, indent=2, ensure_ascii=False))

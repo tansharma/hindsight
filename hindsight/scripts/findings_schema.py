@@ -52,9 +52,16 @@ A findings document is a JSON object:
         "volatile_hubs": [ {"module", "fan_in", "signals"}, ... ],
         "deprecated_apis": [ {"api", "location", "replacement"}, ... ]
       },
-      "since_last_review": [ {"id", "title", "status", "evidence"}, ... ]
+      "since_last_review": [ {"id", "title", "status", "evidence"}, ... ],
                                       # optional; status is resolved | partial |
                                       # unresolved | obsolete
+      "scope": {                      # optional; a scoped review
+        "since": "<git ref>",         #   (references/scoped-review.md)
+        "files": ["path", ...],       #   what list_files.sh --since listed
+        "total_files": 120            #   optional; the full listing's size
+      }                               # The renderer adds "carried_forward":
+                                      # the ids of previous findings outside
+                                      # the scope that were carried unchanged.
     }
 
 Normalized review documents carry "status": "complete".
@@ -309,7 +316,35 @@ def normalize_document(data):
         doc["dependency_scorecard"] = normalize_scorecard(data["dependency_scorecard"], warnings)
         if doc["dependency_scorecard"] is None:
             del doc["dependency_scorecard"]
+    if "scope" in data:
+        doc["scope"] = normalize_scope(data["scope"], warnings)
+        if doc["scope"] is None:
+            del doc["scope"]
     return doc, warnings
+
+
+def normalize_scope(raw, warnings):
+    """A scoped review's scope: {"since", "files", "total_files"?}. Returns
+    None (with a warning) unless it names a ref; files may be empty."""
+    if not isinstance(raw, dict) or not text_field(raw, "since"):
+        warnings.append('scope needs "since" (the git ref) and "files"; ignored, so this renders as a full review')
+        return None
+    files = raw.get("files")
+    if not isinstance(files, list):
+        warnings.append("scope.files is not an array; treated as empty")
+        files = []
+    cleaned = set()
+    for p in files:
+        p = str(p).strip()
+        while p.startswith("./"):
+            p = p[2:]
+        if p:
+            cleaned.add(p)
+    scope = {"since": text_field(raw, "since"), "files": sorted(cleaned)}
+    total = raw.get("total_files")
+    if isinstance(total, int) and not isinstance(total, bool) and total >= len(scope["files"]):
+        scope["total_files"] = total
+    return scope
 
 
 def normalize_scorecard(raw, warnings):

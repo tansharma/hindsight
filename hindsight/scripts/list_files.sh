@@ -7,6 +7,7 @@
 # Usage:
 #   scripts/list_files.sh --root <path>
 #   scripts/list_files.sh --root <path> > files.txt
+#   scripts/list_files.sh --root <path> --since <git-ref>
 #   scripts/import_graph.py --root <path> --files-from files.txt
 #
 # Behavior:
@@ -17,19 +18,26 @@
 #     binary files, and files whose names look like secrets (.env, *.pem,
 #     id_rsa, ...), naming each secret skipped on stderr.
 #   - Logs a summary line to stderr. Nothing but paths goes to stdout.
+#   - --since <git-ref> (a scoped review, references/scoped-review.md):
+#     lists only the files that changed between the ref and the working
+#     tree (committed, staged, unstaged, or new and untracked) plus their
+#     direct dependents from import_graph.py, after the same filtering.
+#     Deleted files are not listed. Needs a git work tree and a valid ref.
 #
 # Exit codes:
 #   0  listing printed (possibly empty)
-#   1  --root missing or not a directory
+#   1  --root missing or not a directory; with --since, not a git work tree
+#      or an unknown ref
 
 set -euo pipefail
 
 source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
 
 root=""
+since=""
 
 usage() {
-  echo "Usage: $0 --root <path>" >&2
+  echo "Usage: $0 --root <path> [--since <git-ref>]" >&2
   exit 1
 }
 
@@ -43,6 +51,11 @@ while [[ $# -gt 0 ]]; do
     --root)
       [[ $# -ge 2 ]] || missing_value "$1"
       root="$2"
+      shift 2
+      ;;
+    --since)
+      [[ $# -ge 2 && -n "$2" ]] || missing_value "$1"
+      since="$2"
       shift 2
       ;;
     -h|--help)
@@ -66,6 +79,17 @@ if [[ ! -d "$root" ]]; then
 fi
 
 cd "$root"
+
+if [[ -n "$since" ]]; then
+  if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    echo "Error: --since needs a git work tree; '$root' is not in one." >&2
+    exit 1
+  fi
+  if ! git rev-parse --verify --quiet "${since}^{commit}" >/dev/null; then
+    echo "Error: --since '$since' is not a commit, branch, or tag in this repository." >&2
+    exit 1
+  fi
+fi
 
 candidates() {
   if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
@@ -108,8 +132,34 @@ while IFS= read -r -d '' f; do
   listed+=("$f")
 done < <(candidates)
 
-if (( ${#listed[@]} > 0 )); then
-  printf '%s\n' "${listed[@]}" | LC_ALL=C sort
+skipped="skipped $binary_count binary, $secret_count possible secret, $output_count Hindsight output"
+
+if [[ -z "$since" ]]; then
+  if (( ${#listed[@]} > 0 )); then
+    printf '%s\n' "${listed[@]}" | LC_ALL=C sort
+  fi
+  echo "Listed ${#listed[@]} file(s); $skipped." >&2
+  exit 0
 fi
 
-echo "Listed ${#listed[@]} file(s); skipped $binary_count binary, $secret_count possible secret, $output_count Hindsight output." >&2
+# Scoped listing: changed files that survived the filters above, plus the
+# listed files that directly import one of them.
+tmp="$(mktemp -d)"
+trap 'rm -rf "$tmp"' EXIT
+if (( ${#listed[@]} > 0 )); then
+  printf '%s\n' "${listed[@]}" | LC_ALL=C sort > "$tmp/all"
+else
+  : > "$tmp/all"
+fi
+{
+  git diff --name-only --no-renames --relative -z "$since" -- .
+  git ls-files -z --others --exclude-standard
+} | tr '\0' '\n' | LC_ALL=C sort -u > "$tmp/diff"
+LC_ALL=C comm -12 "$tmp/all" "$tmp/diff" > "$tmp/changed"
+python3 "$(dirname "${BASH_SOURCE[0]}")/import_graph.py" --root . --files-from "$tmp/all" \
+  --dependents-of "$tmp/changed" > "$tmp/dependents"
+LC_ALL=C sort -u "$tmp/changed" "$tmp/dependents"
+
+changed_count=$(wc -l < "$tmp/changed" | tr -d ' ')
+dependent_count=$(wc -l < "$tmp/dependents" | tr -d ' ')
+echo "Listed $((changed_count + dependent_count)) of ${#listed[@]} file(s): $changed_count changed since $since, $dependent_count direct dependent(s); $skipped." >&2

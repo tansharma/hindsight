@@ -20,6 +20,7 @@ Contents:
 
 ## Executive Summary
 <summary, then the finding count by area>
+**Scope:** changes since `<ref>` only — …   <!-- only in a scoped review; see scoped-review.md -->
 
 ## Since Last Review          <!-- only on re-runs; see Step 6 -->
 <n> previous finding(s): <tally>.

@@ -15,6 +15,12 @@ finding):
   must appear in since_last_review, every since_last_review id must have
   been a previous finding, and every previous finding marked unresolved or
   partial must be carried forward under its id.
+- Scope (a scoped review, when the document has "scope"). A previous
+  finding is in scope when it cites a scoped file or a file that no longer
+  exists; only those need since_last_review entries. Every other previous
+  finding must be carried forward under its id with its content unchanged,
+  and a new finding must cite at least one scoped file (when it cites
+  files at all).
 """
 
 import json
@@ -27,6 +33,12 @@ QUOTE_WINDOW = 3
 LINE_SUFFIX = re.compile(r"^(?P<path>.+?):(?P<start>\d+)(?:-(?P<end>\d+))?$")
 
 CARRY_FORWARD = ("unresolved", "partial")
+
+# What "unchanged" means for a previous finding carried forward by a scoped
+# review: every field the reviewer writes (and set_status.py's fields).
+FINDING_CONTENT = ("area", "title", "issue", "rationale", "impact", "effort", "rank_label",
+                   "evidence", "prompt", "done_when", "decision_matrix",
+                   "status", "status_note", "status_commit")
 
 
 def squash(text):
@@ -154,12 +166,86 @@ def previous_review(json_path, history_dir):
     return None
 
 
+def cited_paths(finding):
+    """Paths a finding's evidence names (entries that are not file
+    references are skipped)."""
+    paths = []
+    for entry in finding.get("evidence") or []:
+        parsed = parse_evidence(entry)
+        if parsed and parsed[0]:
+            path = parsed[0]
+            while path.startswith("./"):
+                path = path[2:]
+            paths.append(path)
+    return paths
+
+
+def touches(path, scope_files):
+    """True if `path` is a scoped file or a directory holding one."""
+    return path in scope_files or any(f.startswith(path.rstrip("/") + "/") for f in scope_files)
+
+
+def in_scope(finding, scope_files, root):
+    """A previous finding is in a scoped review's scope when it cites a
+    scoped file, a directory holding one, or a path that is gone (deleted
+    or renamed)."""
+    for p in cited_paths(finding):
+        if touches(p, scope_files):
+            return True
+        if not os.path.exists(p if os.path.isabs(p) else os.path.join(root, p)):
+            return True
+    return False
+
+
+def verify_scope(doc, previous, warnings):
+    """Scoped review checks (module docstring). Records the ids carried
+    forward unchanged in doc["scope"]["carried_forward"]."""
+    scope = doc.get("scope")
+    if not scope:
+        return
+    files = set(scope["files"])
+    prev = [f for f in (previous or {}).get("findings", []) if isinstance(f, dict) and f.get("id")]
+    if not prev:
+        warnings.append("scope is set but there is no previous review to carry findings forward from; "
+                        "a scoped review follows a full one (references/scoped-review.md)")
+    current = {f["id"]: f for f in doc["findings"]}
+    carried = []
+    for p in prev:
+        if in_scope(p, files, doc["root"]):
+            continue
+        now = current.get(p["id"])
+        if now is None:
+            warnings.append(f"{p['id']} is outside the scope (it cites no scoped file) but was not carried "
+                            "forward; carry it unchanged under its id")
+            continue
+        changed = [k for k in FINDING_CONTENT if now.get(k) != p.get(k)]
+        if changed:
+            warnings.append(f"{p['id']} is outside the scope but was changed when carried forward "
+                            f"({', '.join(changed)}); carry it unchanged")
+        else:
+            carried.append(p["id"])
+    prev_ids = {p["id"] for p in prev}
+    for f in doc["findings"]:
+        if f["id"] not in prev_ids:
+            paths = cited_paths(f)
+            if paths and not any(touches(path, files) for path in paths):
+                warnings.append(f"{f['id']} is new but cites no file in the scope; a scoped review "
+                                "reports new findings only within it")
+    scope["carried_forward"] = sorted(carried)
+
+
 def verify_rerun_coverage(doc, previous, warnings):
     """Warn where since_last_review doesn't account for the previous review,
-    or a finding it calls unresolved/partial was not carried forward."""
+    or a finding it calls unresolved/partial was not carried forward. In a
+    scoped review only the previous findings in scope need classifying."""
     if not previous:
         return
-    prev_ids = [f.get("id") for f in previous.get("findings", []) if isinstance(f, dict) and f.get("id")]
+    prev_findings = [f for f in previous.get("findings", []) if isinstance(f, dict) and f.get("id")]
+    scope = doc.get("scope")
+    if scope:
+        prev_findings = [f for f in prev_findings if in_scope(f, set(scope["files"]), doc["root"])]
+    prev_ids = [f["id"] for f in prev_findings]
+    all_prev_ids = {f.get("id") for f in previous.get("findings", []) if isinstance(f, dict)}
     if not prev_ids:
         return
     entries = [e for e in doc.get("since_last_review") or [] if isinstance(e, dict)]
@@ -179,5 +265,5 @@ def verify_rerun_coverage(doc, previous, warnings):
         elif reviewed[pid].startswith(CARRY_FORWARD) and pid not in current_ids:
             warnings.append(f"{pid} is marked {reviewed[pid]} but was not carried forward under its id")
     for rid in reviewed:
-        if rid and rid not in prev_ids:
+        if rid and rid not in all_prev_ids:
             warnings.append(f"since_last_review entry {rid} was not a finding in the previous review")

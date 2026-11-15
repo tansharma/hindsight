@@ -1405,6 +1405,217 @@ class SetStatusTest(unittest.TestCase):
         self.assertIn("not a completed review", result.stderr)
 
 
+GIT = ["git", "-c", "user.name=t", "-c", "user.email=t@example.com", "-c", "commit.gpgsign=false"]
+EVAL_EXPECTED = Path(__file__).resolve().parent / "eval" / "fixtures" / "orders-svc.expected.json"
+
+
+class ScopedReviewTest(unittest.TestCase):
+    """A scoped review (--since): list_files.sh scopes the listing to a diff
+    plus direct dependents; render_output.py checks that findings outside it
+    are carried forward unchanged and states the scope."""
+
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.root = Path(tmp.name).resolve() / "orders-svc"
+        planted = subprocess.run([sys.executable, str(EVAL_EXPECTED.parent.parent / "plant.py"),
+                                  "--expected", str(EVAL_EXPECTED), "--dest", str(self.root)],
+                                 capture_output=True, text=True)
+        self.assertEqual(planted.returncode, 0, planted.stderr)
+        self.git("init", "-q")
+        self.git("add", "-A")
+        self.git("commit", "-qm", "base")
+
+    def git(self, *args, cwd=None):
+        subprocess.run(GIT + list(args), cwd=cwd or self.root, check=True, capture_output=True)
+
+    def touch(self, name, text="# changed\n"):
+        with open(self.root / name, "a") as fh:
+            fh.write(text)
+
+    def listing(self, *args, root=None):
+        result = run("list_files.sh", "--root", str(root or self.root), *args)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return result, result.stdout.splitlines()
+
+    # --- list_files.sh --since -------------------------------------------
+
+    def test_one_changed_file_lists_it_and_its_direct_dependents_only(self):
+        _, full = self.listing()
+        self.touch("orders/store.py")
+        result, scoped = self.listing("--since", "HEAD")
+        self.assertEqual(scoped, ["orders/intake.py", "orders/refunds.py", "orders/store.py"])
+        self.assertLess(2 * len(scoped), len(full))  # the done-when bar: under half
+        self.assertIn("Listed 3 of 7 file(s): 1 changed since HEAD, 2 direct dependent(s)", result.stderr)
+
+    def test_a_leaf_change_lists_only_that_file(self):
+        self.touch("orders/refunds.py")
+        self.assertEqual(self.listing("--since", "HEAD")[1], ["orders/refunds.py"])
+
+    def test_committed_untracked_and_deleted_changes(self):
+        self.touch("orders/payments.py")
+        self.git("commit", "-qam", "change payments")
+        (self.root / "orders/extra.py").write_text("x = 1\n")
+        (self.root / ".env.local").write_text("TOKEN=1\n")
+        (self.root / "README.md").unlink()
+        result, scoped = self.listing("--since", "HEAD~1")
+        # payments.py changed in a commit since the ref; intake/refunds import it;
+        # extra.py is new; README.md is deleted and .env.local is a secret.
+        self.assertEqual(scoped, ["orders/extra.py", "orders/intake.py", "orders/payments.py", "orders/refunds.py"])
+        self.assertIn("possible secret, not listed: .env.local", result.stderr)
+
+    def test_no_changes_lists_nothing(self):
+        result, scoped = self.listing("--since", "HEAD")
+        self.assertEqual(scoped, [])
+        self.assertIn("Listed 0 of 7 file(s)", result.stderr)
+
+    def test_root_below_the_repository_top(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            (repo / "svc").mkdir()
+            (repo / "svc/a.py").write_text("import b\n")
+            (repo / "svc/b.py").write_text("")
+            (repo / "other.py").write_text("")
+            self.git("init", "-q", cwd=repo)
+            self.git("add", "-A", cwd=repo)
+            self.git("commit", "-qm", "base", cwd=repo)
+            (repo / "svc/b.py").write_text("x = 1\n")
+            (repo / "other.py").write_text("x = 1\n")
+            self.assertEqual(self.listing("--since", "HEAD", root=repo / "svc")[1], ["a.py", "b.py"])
+
+    def test_bad_ref_or_no_git_fails(self):
+        bad = run("list_files.sh", "--root", str(self.root), "--since", "no-such-ref")
+        self.assertEqual(bad.returncode, 1)
+        self.assertIn("not a commit, branch, or tag", bad.stderr)
+        self.assertEqual(bad.stdout, "")
+        with tempfile.TemporaryDirectory() as plain:
+            result = run("list_files.sh", "--root", plain, "--since", "HEAD")
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("needs a git work tree", result.stderr)
+        self.assertEqual(run("list_files.sh", "--root", str(self.root), "--since").returncode, 1)
+
+    def test_dependents_of_deferred_python_and_swift_targets(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "a.py").write_text("def f():\n    import b\n")
+            (root / "b.py").write_text("")
+            (root / "c.py").write_text("import a\n")
+            (root / "changed.txt").write_text("b.py\n")
+            result = run("import_graph.py", "--root", tmp, "a.py", "b.py", "c.py",
+                         "--dependents-of", str(root / "changed.txt"))
+            self.assertEqual(result.stdout.splitlines(), ["a.py"])  # deferred counts; c.py is indirect
+            swift = FIXTURES / "swift_pkg"
+            (root / "changed.txt").write_text("PkgB/Sources/Storage/Store.swift\n")
+            files = sorted(str(p.relative_to(swift)) for p in swift.rglob("*") if p.is_file())
+            result = run("import_graph.py", "--root", str(swift), *files,
+                         "--dependents-of", str(root / "changed.txt"))
+            self.assertEqual(result.stdout.splitlines(), [
+                "PkgA/Sources/Core/Clock.swift", "PkgA/Sources/Core/Model.swift", "PkgB/Sources/Sync/Sync.swift"])
+            missing = run("import_graph.py", "--root", tmp, "a.py", "--dependents-of", str(root / "nope.txt"))
+            self.assertEqual(missing.returncode, 1)
+
+    # --- render_output.py with a scope -----------------------------------
+
+    FULL = [
+        dict(json_finding(area="Code Quality", title="store", evidence=["orders/store.py"])),
+        dict(json_finding(area="Architectural Patterns", title="payments", evidence=["orders/payments.py"],
+                          impact="Low")),
+        dict(json_finding(area="Documentation Gaps", title="readme", evidence=["README.md"], effort="High")),
+        dict(json_finding(area="Code Quality", title="refunds", evidence=["orders/refunds.py"])),
+    ]
+    SCOPE_FILES = ["orders/intake.py", "orders/refunds.py", "orders/store.py"]
+
+    def render_doc(self, doc, *args):
+        doc = {"dependency_scorecard": {}, **doc}
+        return run("render_output.py", "--root", str(self.root), "--goal", "g", *args, stdin=json.dumps(doc))
+
+    def sidecar(self):
+        return json.loads((self.root / "inHindsight.json").read_text())
+
+    def full_review(self):
+        result = self.render_doc({"findings": self.FULL})
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.touch("orders/store.py")
+        return {f["id"]: f for f in self.sidecar()["findings"]}
+
+    def scoped_doc(self, prev, carried=("H-002", "H-003"), new=None, since=None, scope_files=None):
+        findings = [prev[i] for i in carried] + [prev["H-004"]]
+        findings.append(new or json_finding(title="intake retries", evidence=["orders/intake.py"]))
+        return {
+            "scope": {"since": "HEAD", "files": scope_files or self.SCOPE_FILES, "total_files": 7},
+            "findings": findings,
+            "since_last_review": since if since is not None else [
+                {"id": "H-001", "title": "store", "status": "resolved", "evidence": "orders/store.py"},
+                {"id": "H-004", "title": "refunds", "status": "unresolved", "evidence": "unchanged"}],
+        }
+
+    def check_warnings(self, doc):
+        result = self.render_doc(doc, "--check")
+        return result.returncode, [l for l in result.stderr.splitlines() if l.startswith("Warning")]
+
+    def test_scoped_review_keeps_every_untouched_id_and_states_the_scope(self):
+        prev = self.full_review()
+        doc = self.scoped_doc(prev)
+        self.assertEqual(self.check_warnings(doc), (0, []))
+        result = self.render_doc(doc)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        after = {f["id"]: f for f in self.sidecar()["findings"]}
+        self.assertEqual(sorted(after), ["H-002", "H-003", "H-004", "H-005"])
+        for fid in ("H-002", "H-003"):  # untouched: same id, same content
+            self.assertEqual({k: v for k, v in after[fid].items()}, prev[fid])
+        self.assertEqual(after["H-005"]["title"], "intake retries")
+        self.assertEqual(self.sidecar()["scope"]["carried_forward"], ["H-002", "H-003"])
+        md = (self.root / "inHindsight.md").read_text()
+        summary = md.split("## Executive Summary", 1)[1].split("\n## ", 1)[0]
+        self.assertIn("**Scope:** changes since `HEAD` only — 3 of 7 file(s) reviewed", summary)
+        self.assertIn("2 previous finding(s) outside that scope were carried forward unchanged and not "
+                      "re-verified: H-002, H-003.", summary)
+
+    def test_dropping_or_editing_an_untouched_finding_warns(self):
+        prev = self.full_review()
+        _, warnings = self.check_warnings(self.scoped_doc(prev, carried=("H-002",)))
+        self.assertIn("Warning: H-003 is outside the scope (it cites no scoped file) but was not carried "
+                      "forward; carry it unchanged under its id", warnings)
+        edited = dict(prev["H-003"], title="reworded", impact="Low")
+        doc = self.scoped_doc(prev, carried=("H-002",))
+        doc["findings"].insert(1, edited)
+        _, warnings = self.check_warnings(doc)
+        self.assertIn("Warning: H-003 is outside the scope but was changed when carried forward "
+                      "(title, impact); carry it unchanged", warnings)
+
+    def test_new_finding_outside_the_scope_warns(self):
+        prev = self.full_review()
+        doc = self.scoped_doc(prev, new=json_finding(title="elsewhere", evidence=["orders/payments.py"]))
+        _, warnings = self.check_warnings(doc)
+        self.assertIn("Warning: H-005 is new but cites no file in the scope; a scoped review reports new "
+                      "findings only within it", warnings)
+
+    def test_in_scope_findings_still_need_classifying(self):
+        prev = self.full_review()
+        _, warnings = self.check_warnings(self.scoped_doc(prev, since=[
+            {"id": "H-004", "title": "refunds", "status": "unresolved", "evidence": "unchanged"}]))
+        self.assertEqual(warnings, ["Warning: since_last_review does not classify previous finding H-001"])
+
+    def test_a_finding_on_a_deleted_file_is_in_scope(self):
+        prev = self.full_review()
+        (self.root / "README.md").unlink()
+        doc = self.scoped_doc(prev, carried=("H-002",))
+        _, warnings = self.check_warnings(doc)
+        self.assertIn("Warning: since_last_review does not classify previous finding H-003", warnings)
+        self.assertFalse(any("H-003 is outside the scope" in w for w in warnings))
+
+    def test_scope_without_a_previous_review_warns(self):
+        _, warnings = self.check_warnings({"scope": {"since": "HEAD", "files": self.SCOPE_FILES},
+                                           "findings": self.FULL})
+        self.assertTrue(any("no previous review to carry findings forward from" in w for w in warnings))
+
+    def test_full_review_has_no_scope_line(self):
+        self.full_review()
+        md = (self.root / "inHindsight.md").read_text()
+        self.assertNotIn("**Scope:**", md)
+        self.assertNotIn("scope", self.sidecar())
+
+
 class RubricTest(unittest.TestCase):
     """The Impact/Effort rubric is worded identically in the P-Prompt and
     SKILL.md, so both review paths rank findings the same way."""
@@ -1609,7 +1820,7 @@ class PackagingTest(unittest.TestCase):
         refs = set(re.findall(r"references/[\w.-]+\.md", skill))
         self.assertEqual(refs, {"references/output-format.md", "references/scripts.md",
                                 "references/non-interactive.md", "references/goal-refinement.md",
-                                "references/re-runs.md"})
+                                "references/re-runs.md", "references/scoped-review.md"})
         for ref in refs:
             self.assertTrue((SCRIPTS.parent / ref).exists())
 

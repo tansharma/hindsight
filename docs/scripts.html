@@ -38,6 +38,7 @@
     <p class="lede">The agent runs these for you during a review, but they also work on their own (<code>S=hindsight/scripts</code>, or wherever you installed the skill):</p>
 
     <pre><code>bash "$S/list_files.sh" --root path/to/project &gt; files.txt          # the files a review would scan
+bash "$S/list_files.sh" --root path/to/project --since main          # only files changed since main, plus their importers
 python3 "$S/import_graph.py" --root path/to/project --files-from files.txt &gt; graph.json
 python3 "$S/render_output.py" --check --root path/to/project --goal "..." findings.json   # validate only
 python3 "$S/render_output.py" --root path/to/project --goal "..." findings.json           # write inHindsight.md/.json

@@ -13,11 +13,20 @@ the repository root (`tests/` is not installed with the skill).
   git work tree; always skips dependency/build dirs, Hindsight's own
   outputs (`inHindsight.md`/`.json`, `hindsight-history/`), symlinks,
   binaries, and secret-looking files (naming each secret it skips on
-  stderr).
+  stderr). `--since <git-ref>` (a scoped review,
+  `references/scoped-review.md`) lists only the files that changed between
+  the ref and the working tree (`git diff --relative <ref> -- .` plus
+  untracked, not-ignored files), after the same filters, plus their direct
+  dependents from `import_graph.py --dependents-of`; deleted files are not
+  listed. Exits 1 outside a git work tree or for an unknown ref.
 - `common.sh` — helpers sourced by the shell scripts: the pruned-directory
   list, binary sniffing, the secret-filename patterns, and the shared
   `--files` / `--files-from` reader. Not run directly.
-- `import_graph.py` — Step 2's dependency analysis for Python, JS/TS and Swift. For Python and JS/TS:
+- `import_graph.py` — Step 2's dependency analysis for Python, JS/TS and Swift.
+  `--dependents-of <changed.txt>` prints, instead of the JSON, the listed
+  files that directly import a changed file (module-level or deferred; for
+  Swift, every listed file of a target that imports the changed file's
+  target), sorted, without the changed files. For Python and JS/TS:
   internal import graph (Python via `ast`; resolves package, `src/`-layout,
   relative, same-directory, and nested-project-root imports; skips `TYPE_CHECKING`-guarded and
   TypeScript type-only imports), function-local `deferred_imports` (they
@@ -56,7 +65,13 @@ the repository root (`tests/` is not installed with the skill).
   docstring) shared by `render_output.py` and the legacy `parse_findings.py`: normalization, area and
   Impact/Effort canonicalization, and `H-NNN` id assignment. Not run
   directly.
-- `render_output.py` — Step 5's renderer: findings document (or bare array)
+- `render_output.py` — Step 5's renderer. With a `scope` in the document
+  (a scoped review), it states the scope in the Executive Summary, records
+  `scope.carried_forward`, requires `since_last_review` entries only for
+  the previous findings in scope, and warns when a previous finding outside
+  the scope is missing or changed, or a new finding cites no scoped file
+  (rules in `verify_findings.py`'s docstring). The rest of this entry
+  applies to every review: findings document (or bare array)
   in, `inHindsight.md` + `inHindsight.json` out (`--out` / `--json-out` to
   override; `--root`/`--goal` may instead come from the document). Archives
   any previous pair into `hindsight-history/`, assigns ids without reusing

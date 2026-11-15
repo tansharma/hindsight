@@ -107,6 +107,9 @@ prose, or earlier conversation; there is no fixed CLI syntax.
      and the invocation did not explicitly accept a larger list, record a
      needs-input result with `missing: ["file_list"]` instead of trimming
      the list yourself.
+   - Asked to review only what changed since a git ref ("since main",
+     `--since <ref>`)? Read `references/scoped-review.md` and follow it;
+     it changes Steps 1-3 and 5.
 3. **`user_goal`** — a concrete purpose or use case (e.g. "This service
    handles payment processing", "Optimize for low read latency"). This is
    **mandatory** and is what every finding must be judged against. If the
@@ -414,12 +417,9 @@ deliberate and you tell the user why; then run the same command without
 previous output and reserves its ids, so the findings would be renumbered.
 
 It writes `<project_root>/inHindsight.md` (for people) and
-`<project_root>/inHindsight.json` (the normalized document with every id
-assigned — for agents, and for the next re-run). If either file already
-exists, both are first moved into `<project_root>/hindsight-history/`
-with a timestamp prefix, so no earlier review is lost. Any evidence
-still unverified is listed per finding as `evidence_unverified` in the
-JSON.
+`inHindsight.json` (the normalized document, every id assigned, with
+`evidence_unverified` per finding where a citation failed), first moving
+any existing pair into `hindsight-history/` so no review is lost.
 
 This step is presentation: every finding appears exactly once, none are
 added, dropped, or re-worded. The renderer orders the findings by bucket
@@ -485,21 +485,12 @@ base directory when the skill loads; for Codex/Gemini it is wherever the
 Invoke scripts through their interpreter (`bash`/`python3`) so they work
 even if a copy lost its executable bit.
 
-The scripts a review runs (`S="<skill-dir>/scripts"`):
-
-- `bash "$S/list_files.sh" --root <path>` — Step 1's file list: paths on
-  stdout, counts and any skipped secrets on stderr.
-- `python3 "$S/import_graph.py" --root <path> --files-from -` — Step 2's
-  import graph, as JSON on stdout.
-- `python3 "$S/render_output.py" [--check] --root <path> --goal "<goal>"` —
-  Step 5; the findings document on stdin.
-- `python3 "$S/render_decision_matrix.py"` — optional preview of a Step 4
-  matrix (a JSON array on stdin; exits 1 with fewer than three valid
-  candidates).
-
+Steps 1, 2 and 5 give the exact command for each script a review runs
+(`list_files.sh`, `import_graph.py`, `render_output.py`);
+`render_decision_matrix.py` can preview a Step 4 matrix on its own.
 `common.sh`, `findings_schema.py`, and `verify_findings.py` are sourced or
 imported by these and never run directly. `set_status.py` is not part of a
 review: run it only when the user asks to mark a finding resolved, partial
-or wontfix (`--root <path> --id H-NNN --status <s> --note "<why>"`). Script internals, the
-findings-document contract, and maintainer notes are in
-`references/scripts.md`; read it only if a script fails unexpectedly.
+or wontfix (`--root <path> --id H-NNN --status <s> --note "<why>"`).
+Script internals, the findings-document contract, and maintainer notes are
+in `references/scripts.md`; read it only if a script fails unexpectedly.

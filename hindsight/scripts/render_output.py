@@ -26,6 +26,10 @@ should keep their old id in the input.
 Each of the three areas should be addressed by at least one finding or a
 "no_findings" entry; an unaddressed area is reported as a warning.
 
+A "scope" (a scoped review, references/scoped-review.md) is stated in the
+Executive Summary, with the previous findings outside it that were carried
+forward unchanged.
+
 Claims are checked against the project (verify_findings.py): evidence
 paths must exist under root, cited lines must be in range, and evidence
 quotes must appear at the cited lines; on a re-run, since_last_review must
@@ -180,6 +184,20 @@ def render_finding(f, warnings):
     if f.get("decision_matrix"):
         lines.extend(render_matrix(f, warnings))
     return lines
+
+
+def render_scope(scope):
+    """The Executive Summary's statement of a scoped review's scope."""
+    if not scope:
+        return []
+    of = f" of {scope['total_files']}" if "total_files" in scope else ""
+    text = (f"**Scope:** changes since {inline_code(scope['since'])} only — {len(scope['files'])}{of} "
+            "file(s) reviewed (the changed files and their direct dependents).")
+    carried = scope.get("carried_forward") or []
+    if carried:
+        text += (f" {len(carried)} previous finding(s) outside that scope were carried forward "
+                 f"unchanged and not re-verified: {', '.join(carried)}.")
+    return [text, ""]
 
 
 def render_since_last_review(items, warnings):
@@ -359,6 +377,7 @@ def render(doc, warnings=None):
             "ready-to-use LLM Action Prompt for executing the fix."
         )
     lines.append("")
+    lines.extend(render_scope(doc.get("scope")))
 
     lines.extend(render_since_last_review(doc.get("since_last_review"), warnings))
 
@@ -522,6 +541,7 @@ def main():
     warnings += assign_ids(doc["findings"], previous_ids(json_path, history_dir))
     verify_findings.verify_evidence(doc, warnings)
     verify_findings.verify_rerun_coverage(doc, previous, warnings)
+    verify_findings.verify_scope(doc, previous, warnings)
     doc["generated"] = date.today().isoformat()
     rendered = render(doc, warnings)
     if args.check:

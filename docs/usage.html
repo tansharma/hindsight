@@ -59,6 +59,8 @@
 
     <p>Those are the only files Hindsight writes; it never modifies your project's code directly. Run it again later in the same project and it will also report which of its previous findings you've since resolved, keeping each carried-forward finding's ID. Before writing a new review, it moves the previous <code>inHindsight.md</code>/<code>.json</code> into <code>hindsight-history/</code> with a timestamp, so earlier reviews are never lost. You may want to add <code>hindsight-history/</code> to your <code>.gitignore</code>.</p>
 
+    <p>To review only what changed, ask for a review since a git ref, for example <code>/hindsight review what changed since main</code>. Hindsight then reads just the files changed since that ref and the files that import them, re-checks the previous findings those files touch, and looks for new findings only there. Every other finding is copied forward unchanged under its id, and the Executive Summary states the scope and which findings were carried without being re-checked. It needs a previous full review and a git repository; run a full review again after large or cross-cutting changes.</p>
+
     <h2>Decision matrix, gap report, and scorecard</h2>
 
     <p>For the single most critical finding in each review, Hindsight also generates a weighted decision matrix: three or more distinct candidate solutions scored by Estimated Impact and Development Effort (1-5), rendered as a table directly beneath that finding — so the highest-leverage issue comes with options to weigh, not just one prescribed fix.</p>
