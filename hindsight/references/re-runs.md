@@ -22,6 +22,26 @@ Before writing the new review, check whether a previous one exists:
    - **unresolved** — unchanged.
    - **obsolete** — no longer applicable (the code it referred to was
      removed, or the goal changed).
+   **A prior finding may carry a hand-set `status`** (`resolved`,
+   `partial` or `wontfix`, with `status_note` and sometimes
+   `status_commit`), recorded by the user with `set_status.py` since the
+   last review. Read it as prior evidence, never as proof: it tells you
+   where to look (the note, the commit's diff), and you still check the
+   current code and `done_when` yourself and classify from what you find.
+   - Marked `resolved` or `partial` and the code agrees: classify it so,
+     citing the code (the note or commit alone is not evidence).
+   - Marked `resolved` or `partial` and the code disagrees: classify by
+     the code, and say in the entry's `evidence` that the hand-set status
+     did not hold. Carry the finding forward **without** its `status*`
+     fields.
+   - Marked `wontfix`: a decision, not a fix. Check whether the issue
+     still exists. If it does, classify it `unresolved` and carry it
+     forward **with** its `status`, `status_note` and `status_commit`
+     unchanged, so the decision stays visible and is not re-argued; quote
+     the note in `evidence`. If the code it referred to is gone, it is
+     `obsolete`.
+   Never set or change a `status` yourself during a review; only the user
+   does, through `set_status.py`.
 3. **Record the result in `since_last_review`** — one entry per prior
    finding: `{"id", "title", "status", "evidence"}`. The renderer prints
    the `## Since Last Review` section immediately after the Executive

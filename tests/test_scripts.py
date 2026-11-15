@@ -1271,6 +1271,140 @@ class CheckModeTest(unittest.TestCase):
         self.assertEqual(list(self.root.iterdir()), [])
 
 
+class SetStatusTest(unittest.TestCase):
+    """set_status.py marks a finding in the current review in place."""
+
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.root = Path(tmp.name)
+        self.doc = {
+            "findings": [json_finding(title="first"), json_finding(title="second", impact="Low"),
+                         json_finding(title="third")],
+            "no_findings": [{"area": "Architectural Patterns", "reason": "r"},
+                            {"area": "Documentation Gaps", "reason": "r"}],
+            "dependency_scorecard": {},
+        }
+        result = run("render_output.py", "--root", str(self.root), "--goal", "g", stdin=json.dumps(self.doc))
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def set_status(self, *args):
+        return run("set_status.py", "--root", str(self.root), *args, isolated=True)
+
+    def sidecar(self):
+        return json.loads((self.root / "inHindsight.json").read_text())
+
+    def outputs(self):
+        return (self.root / "inHindsight.json").read_bytes(), (self.root / "inHindsight.md").read_bytes()
+
+    def finding(self, finding_id):
+        return next(f for f in self.sidecar()["findings"] if f["id"] == finding_id)
+
+    def test_round_trip_updates_json_and_markdown(self):
+        before = self.sidecar()
+        result = self.set_status("--id", "H-002", "--status", "resolved",
+                                 "--note", "extracted  the helper", "--commit", "abc1234")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("H-002 marked resolved", result.stderr)
+        after = self.sidecar()
+        marked = self.finding("H-002")
+        self.assertEqual((marked["status"], marked["status_note"], marked["status_commit"]),
+                         ("resolved", "extracted the helper", "abc1234"))
+        # Nothing else in the document changed.
+        for key in ("status", "status_note", "status_commit"):
+            marked.pop(key)
+        self.assertEqual([f if f["id"] != "H-002" else marked for f in after["findings"]], before["findings"])
+        self.assertEqual({k: v for k, v in after.items() if k != "findings"},
+                         {k: v for k, v in before.items() if k != "findings"})
+        md = (self.root / "inHindsight.md").read_text()
+        self.assertIn("#### H-002. second `✅ Resolved`\n", md)
+        self.assertIn("- **Status:** Resolved (marked by hand, not yet verified by a review): "
+                      "extracted the helper — commit `abc1234`\n", md)
+        self.assertIn("#### H-001. first\n", md)
+        self.assertIn("#### H-003. third\n", md)
+
+    def test_ids_stable_and_nothing_archived(self):
+        ids = [f["id"] for f in self.sidecar()["findings"]]
+        for finding_id, status in (("H-001", "wontfix"), ("H-003", "partial"), ("H-001", "resolved")):
+            self.assertEqual(self.set_status("--id", finding_id, "--status", status, "--note", "n").returncode, 0)
+            self.assertEqual([f["id"] for f in self.sidecar()["findings"]], ids)
+        self.assertEqual(ids, ["H-001", "H-002", "H-003"])
+        self.assertEqual(sorted(p.name for p in self.root.iterdir()), ["inHindsight.json", "inHindsight.md"])
+        md = (self.root / "inHindsight.md").read_text()
+        self.assertIn("#### H-001. first `✅ Resolved`", md)
+        self.assertIn("#### H-003. third `\U0001f7e1 Partially resolved`", md)
+        self.assertEqual(md.count("#### H-"), 3)
+
+    def test_setting_the_same_status_twice_is_idempotent(self):
+        args = ("--id", "H-001", "--status", "wontfix", "--note", "accepted risk", "--commit", "deadbeef")
+        self.assertEqual(self.set_status(*args).returncode, 0)
+        first = self.outputs()
+        again = self.set_status(*args)
+        self.assertEqual(again.returncode, 0)
+        self.assertIn("H-001 already wontfix", again.stderr)
+        self.assertEqual(self.outputs(), first)
+        self.assertIn("`\U0001f6ab Won't fix`", first[1].decode())
+
+    def test_new_status_replaces_the_old_one_entirely(self):
+        self.set_status("--id", "H-001", "--status", "resolved", "--note", "done", "--commit", "abc1234")
+        self.set_status("--id", "h-001", "--status", "partial", "--note", "tests still missing")
+        marked = self.finding("H-001")
+        self.assertEqual((marked["status"], marked["status_note"]), ("partial", "tests still missing"))
+        self.assertNotIn("status_commit", marked)
+        self.assertNotIn("abc1234", (self.root / "inHindsight.md").read_text())
+
+    def test_check_gains_no_warnings_from_a_status(self):
+        def check_sidecar():
+            result = run("render_output.py", "--check", "--root", str(self.root), "--goal", "g",
+                         str(self.root / "inHindsight.json"))
+            return result.returncode, [l for l in result.stderr.splitlines() if l.startswith("Warning")]
+        before = check_sidecar()
+        self.set_status("--id", "H-002", "--status", "resolved", "--note", "n", "--commit", "abc1234")
+        self.assertEqual(check_sidecar(), before)
+        # A findings document that carries the status fields checks clean.
+        doc = dict(self.doc, findings=[dict(f) for f in self.sidecar()["findings"]])
+        with tempfile.TemporaryDirectory() as other:
+            result = run("render_output.py", "--check", "--root", other, "--goal", "g", stdin=json.dumps(doc))
+            self.assertEqual(result.returncode, 0, result.stderr)
+            rendered = run("render_output.py", "--root", other, "--goal", "g", stdin=json.dumps(doc))
+            carried = json.loads((Path(other) / "inHindsight.json").read_text())["findings"]
+        self.assertEqual(rendered.returncode, 0, rendered.stderr)
+        self.assertEqual([f["id"] for f in carried], ["H-001", "H-002", "H-003"])
+        self.assertEqual((carried[1]["status"], carried[1]["status_commit"]), ("resolved", "abc1234"))
+
+    def test_unknown_status_in_a_findings_document_warns_and_is_dropped(self):
+        doc = dict(self.doc, findings=[json_finding(status="done", status_note="n")])
+        with tempfile.TemporaryDirectory() as other:
+            result = run("render_output.py", "--root", other, "--goal", "g", stdin=json.dumps(doc))
+            saved = json.loads((Path(other) / "inHindsight.json").read_text())["findings"][0]
+        self.assertIn("finding 1: unknown status 'done' ignored", result.stderr)
+        self.assertNotIn("status", saved)
+        self.assertNotIn("status_note", saved)
+
+    def test_errors_leave_the_review_untouched(self):
+        before = self.outputs()
+        unknown = self.set_status("--id", "H-009", "--status", "resolved", "--note", "n")
+        self.assertEqual(unknown.returncode, 1)
+        self.assertIn("no finding H-009", unknown.stderr)
+        self.assertIn("H-001, H-002, H-003", unknown.stderr)
+        self.assertEqual(self.set_status("--id", "H-001", "--status", "resolved", "--note", "  ").returncode, 1)
+        self.assertEqual(self.set_status("--id", "four", "--status", "resolved", "--note", "n").returncode, 1)
+        self.assertEqual(self.set_status("--id", "H-001", "--status", "resolved", "--note", "n",
+                                         "--commit", "not-a-sha").returncode, 1)
+        self.assertEqual(self.set_status("--id", "H-001", "--status", "fixed", "--note", "n").returncode, 2)
+        self.assertEqual(self.outputs(), before)
+
+    def test_needs_a_completed_review(self):
+        with tempfile.TemporaryDirectory() as empty:
+            result = run("set_status.py", "--root", empty, "--id", "H-001", "--status", "resolved", "--note", "n")
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("no review found", result.stderr)
+        run("render_output.py", "--root", str(self.root), stdin=json.dumps({"status": "needs_input", "missing": ["goal"]}))
+        result = self.set_status("--id", "H-001", "--status", "resolved", "--note", "n")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("not a completed review", result.stderr)
+
+
 class RubricTest(unittest.TestCase):
     """The Impact/Effort rubric is worded identically in the P-Prompt and
     SKILL.md, so both review paths rank findings the same way."""

@@ -78,6 +78,20 @@ the repository root (`tests/` is not installed with the skill).
   cited line; on a re-run, `since_last_review` classifies every previous
   finding and unresolved/partial ones are carried forward under their id.
   Not run directly.
+- `set_status.py` — run by the user (or by the agent when asked) between
+  reviews, never during one: `--root <path> --id H-004 --status
+  resolved|partial|wontfix --note "..." [--commit <sha>]`. Sets the
+  finding's optional `status`, `status_note` and `status_commit` in
+  `inHindsight.json` and rewrites `inHindsight.md` from that document with
+  `render_output.render`, in place: nothing is archived, no id changes,
+  and `generated` keeps the review's date. A call replaces the previous
+  status entirely, so repeating it leaves both files byte-identical. The
+  renderer shows the status as a badge beside the title plus a Status line
+  that says it was marked by hand. Exits 1 (files untouched) for a missing
+  or needs-input review, an unknown id, an empty note, or a malformed
+  commit; the commit is format-checked only, not looked up in git. On the
+  next review the status is prior evidence the reviewer verifies
+  (`references/re-runs.md`).
 - `render_decision_matrix.py` — the table renderer `render_output.py` uses
   for Step 4. Also usable on its own to preview a matrix: takes a JSON
   array of `{solution, impact, effort, argument}` candidates (stdin or a

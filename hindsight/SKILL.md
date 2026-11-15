@@ -498,6 +498,8 @@ The scripts a review runs (`S="<skill-dir>/scripts"`):
   candidates).
 
 `common.sh`, `findings_schema.py`, and `verify_findings.py` are sourced or
-imported by these and never run directly. Script internals, the
+imported by these and never run directly. `set_status.py` is not part of a
+review: run it only when the user asks to mark a finding resolved, partial
+or wontfix (`--root <path> --id H-NNN --status <s> --note "<why>"`). Script internals, the
 findings-document contract, and maintainer notes are in
 `references/scripts.md`; read it only if a script fails unexpectedly.

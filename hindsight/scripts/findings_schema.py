@@ -28,8 +28,16 @@ A findings document is a JSON object:
                                       # against the project root
           "prompt": "<self-contained LLM action prompt>",
           "done_when": "<how to verify the fix>",
-          "decision_matrix": [ {solution, impact, effort, argument}, ... ]
+          "decision_matrix": [ {solution, impact, effort, argument}, ... ],
                                       # optional; at most one finding per review
+          "status": "resolved | partial | wontfix",
+                                      # optional; set by hand with
+                                      # set_status.py after a review. A claim
+                                      # for the next review to verify (Step
+                                      # 6), never proof. Not the document's
+                                      # own "status" below.
+          "status_note": "<why>",     # optional; kept only with a status
+          "status_commit": "<sha>"    # optional; kept only with a status
         }
       ],
       "no_findings": [ {"area", "reason"}, ... ],
@@ -83,6 +91,9 @@ AREA_ORDER = ["Architectural Patterns", "Code Quality", "Documentation Gaps"]
 IMPACT_EFFORT_ORDER = [("High", "Low"), ("High", "High"), ("Low", "Low"), ("Low", "High")]
 
 REVIEW_STATUSES = ["resolved", "partial", "unresolved", "obsolete"]
+
+# What a user can mark a finding as between reviews (set_status.py).
+FINDING_STATUSES = ["resolved", "partial", "wontfix"]
 
 NEEDS_INPUT = "needs_input"
 
@@ -231,6 +242,12 @@ def normalize_finding(raw):
     out["done_when"] = text_field(f, "done_when")
     if f.get("decision_matrix"):
         out["decision_matrix"] = f["decision_matrix"]
+    status = text_field(f, "status").lower()
+    if status in FINDING_STATUSES:
+        out["status"] = status
+        for key in ("status_note", "status_commit"):
+            if text_field(f, key):
+                out[key] = " ".join(text_field(f, key).split())
     return out, None
 
 
@@ -272,6 +289,9 @@ def normalize_document(data):
         if finding is None:
             warnings.append(f"dropped finding {i}: {problem}")
         else:
+            if raw.get("status") not in (None, "") and "status" not in finding:
+                warnings.append(f"finding {i}: unknown status {raw['status']!r} ignored; "
+                                f"expected one of {', '.join(FINDING_STATUSES)}")
             doc["findings"].append(finding)
 
     entries = data.get("no_findings") or []

@@ -27,7 +27,7 @@ Contents:
 
 ## ⚡ High Impact / Low Effort
 ### <Area>
-#### H-002. <title>
+#### H-002. <title>          <!-- plus a badge, e.g. `✅ Resolved`, and a "- **Status:** ..." line, only when set_status.py set one -->
 - **Issue:** ...
 - **Rationale:** ...
 - **Impact/Effort:** High Impact / Low Effort

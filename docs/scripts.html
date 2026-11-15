@@ -40,7 +40,10 @@
     <pre><code>bash "$S/list_files.sh" --root path/to/project &gt; files.txt          # the files a review would scan
 python3 "$S/import_graph.py" --root path/to/project --files-from files.txt &gt; graph.json
 python3 "$S/render_output.py" --check --root path/to/project --goal "..." findings.json   # validate only
-python3 "$S/render_output.py" --root path/to/project --goal "..." findings.json           # write inHindsight.md/.json</code></pre>
+python3 "$S/render_output.py" --root path/to/project --goal "..." findings.json           # write inHindsight.md/.json
+python3 "$S/set_status.py" --root path/to/project --id H-004 --status resolved --note "..." [--commit &lt;sha&gt;]   # mark a finding</code></pre>
+
+    <p><code>set_status.py</code> records that you resolved, partly resolved, or decided not to fix (<code>wontfix</code>) a finding. It updates <code>inHindsight.json</code> and rewrites <code>inHindsight.md</code> in place with a status badge beside the finding's title; nothing is archived and no finding is renumbered. The next review treats the status as a claim to verify against the code, not as proof.</p>
 
     <p><code>render_output.py --check</code> exits 0 when a findings document is clean, 2 when it has warnings (unverifiable evidence, an unaddressed area, a re-run that doesn't account for the previous review), and 1 when it can't be rendered. A real render moves any previous review into <code>hindsight-history/</code> first. Script internals are documented in <code>hindsight/references/scripts.md</code>.</p>
 

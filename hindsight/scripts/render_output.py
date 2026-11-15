@@ -33,6 +33,9 @@ classify every previous finding and unresolved/partial ones must be carried
 forward under their id. Problems are warnings; unresolvable evidence is
 also listed per finding as "evidence_unverified" in the JSON sidecar.
 
+A finding's optional "status" (set by set_status.py) is rendered as a badge
+beside its title plus a Status line, and passes through unchanged.
+
 --check runs every check (including id assignment against the previous
 review) and prints the warnings, but writes and archives nothing. Run it
 until it is clean, then render once: each real render archives the
@@ -83,6 +86,13 @@ STATUS_LABELS = {
     "partial": "Partially resolved",
     "unresolved": "Unresolved",
     "obsolete": "Obsolete",
+}
+
+# Badges for a status set by hand with set_status.py (findings_schema.FINDING_STATUSES).
+FINDING_STATUS_BADGES = {
+    "resolved": "✅ Resolved",
+    "partial": "\U0001f7e1 Partially resolved",
+    "wontfix": "\U0001f6ab Won't fix",
 }
 
 HISTORY_DIR = "hindsight-history"
@@ -143,7 +153,16 @@ def render_matrix(f, warnings):
 
 
 def render_finding(f, warnings):
-    lines = [f"#### {f['id']}. {f['title']}", ""]
+    badge = FINDING_STATUS_BADGES.get(f.get("status"))
+    lines = [f"#### {f['id']}. {f['title']}" + (f" `{badge}`" if badge else ""), ""]
+    if badge:
+        # Set by hand between reviews: say so, since no review has checked it.
+        status = f"- **Status:** {badge.split(' ', 1)[1]} (marked by hand, not yet verified by a review)"
+        if f.get("status_note"):
+            status += f": {f['status_note']}"
+        if f.get("status_commit"):
+            status += f" — commit {inline_code(f['status_commit'])}"
+        lines.append(status)
     if f.get("rank_label") is not None:
         lines.append(f"- **Area:** {f['area']}")
     lines.append(f"- **Issue:** {f['issue']}")
