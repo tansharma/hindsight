@@ -107,6 +107,24 @@ the repository root (`tests/` is not installed with the skill).
   commit; the commit is format-checked only, not looked up in git. On the
   next review the status is prior evidence the reviewer verifies
   (`references/re-runs.md`).
+- `export_tasks.py` — not part of a review: `--root <path> --format
+  markdown --target pending.md` or `--format gh`. Exports the open findings
+  (not hand-marked resolved/wontfix) of `<root>/inHindsight.json`.
+  markdown keeps a `## Hindsight` section in the target (appended, and the
+  file created, if missing): one task per finding between
+  `<!-- hindsight:begin H-NNN -->` / `<!-- hindsight:end H-NNN -->`
+  markers, with a checkbox line (id, title, rank, area) and the prompt plus
+  `done_when` in a fence sized past any backticks in it. Keyed by id:
+  existing tasks are rewritten in place (the user's checkbox is kept), new
+  ones appended after the last task, closed ones ticked with `— closed:
+  <reason>` rather than deleted; text outside the markers is untouched,
+  and the file is written only when its text changes, so a repeat export
+  is byte-identical. Task lines are indented, so prompt text can't fake a
+  marker or a heading. gh prints a bash script of `gh issue create`
+  commands and runs nothing: titles go through `shlex.quote`, bodies through
+  `--body-file -` and a quoted heredoc whose delimiter no body line equals.
+  Exits 1 for a missing or needs-input review or an unreadable/unwritable
+  target, 2 for bad arguments.
 - `rollup.py` — not part of a review: `--roots <root> ... [--out
   rollup.md] [--stale-days 60] [--today YYYY-MM-DD]` reads each root's
   `inHindsight.json` and `hindsight-history/*.json` and writes one section

@@ -43,7 +43,11 @@ python3 "$S/import_graph.py" --root path/to/project --files-from files.txt &gt; 
 python3 "$S/render_output.py" --check --root path/to/project --goal "..." findings.json   # validate only
 python3 "$S/render_output.py" --root path/to/project --goal "..." findings.json           # write inHindsight.md/.json
 python3 "$S/set_status.py" --root path/to/project --id H-004 --status resolved --note "..." [--commit &lt;sha&gt;]   # mark a finding
-python3 "$S/rollup.py" --roots path/to/app path/to/api --out rollup.md   # one page across several projects</code></pre>
+python3 "$S/rollup.py" --roots path/to/app path/to/api --out rollup.md   # one page across several projects
+python3 "$S/export_tasks.py" --root path/to/project --format markdown --target pending.md   # open findings as tasks
+python3 "$S/export_tasks.py" --root path/to/project --format gh &gt; issues.sh   # gh issue commands, not run</code></pre>
+
+    <p><code>export_tasks.py</code> turns a review's open findings into tasks. With <code>--format markdown</code> it keeps a <code>## Hindsight</code> section in the target file, one checkbox task per finding with its id, its prompt and how to tell it's done. Running it again updates each task in place by its id instead of adding duplicates, keeps your ticks and anything you wrote outside its tasks, and marks tasks for findings that are no longer open as closed. With <code>--format gh</code> it prints <code>gh issue create</code> commands for you to review and run; it never runs them, and finding text is quoted so the shell can't interpret it.</p>
 
     <p><code>rollup.py</code> summarizes the reviews already written in several projects: for each one, a table with the health score, open, resolved and won't-fix findings, the review date and its age in days, and a trend line across its archived reviews. A review more than 60 days old is flagged (change it with <code>--stale-days</code>). It reads only the saved <code>inHindsight.json</code> files and <code>hindsight-history/</code>, with no model and no network, and notes rather than fails on missing or unreadable files.</p>
 

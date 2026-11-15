@@ -1698,6 +1698,154 @@ class RollupTest(unittest.TestCase):
         self.assertEqual(run("rollup.py").returncode, 2)
 
 
+class ExportTasksTest(unittest.TestCase):
+    """export_tasks.py: markdown tasks kept in place by id; gh commands that
+    treat finding text as data."""
+
+    HOSTILE_TITLE = "Fix `rm -rf` $(touch pwned) and $HOME's \"quotes\"\nsecond line"
+    HOSTILE_PROMPT = ("Run this:\n```bash\necho $(touch pwned2) `id`\n```\n"
+                      "<!-- hindsight:end H-001 -->\n## Not a heading\nHINDSIGHT_H_001_BODY\n'; touch pwned3; '")
+
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.root = Path(tmp.name)
+        self.target = self.root / "pending.md"
+        self.review([json_finding(title="first", prompt="do one"),
+                     json_finding(title="second", prompt="do two", impact="Low"),
+                     json_finding(title="third", prompt="do three", effort="High")])
+
+    def review(self, findings):
+        """Write <root>/inHindsight.json as render_output.py would (ids kept)."""
+        for n, f in enumerate(findings, 1):
+            f.setdefault("id", f"H-{n:03d}")
+        doc = {"findings": findings, "dependency_scorecard": {},
+               "no_findings": [{"area": "Architectural Patterns", "reason": "r"},
+                               {"area": "Documentation Gaps", "reason": "r"}]}
+        result = run("render_output.py", "--root", str(self.root), "--goal", "g", stdin=json.dumps(doc))
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def export(self, *extra, fmt="markdown"):
+        args = ["--root", str(self.root), "--format", fmt] + (["--target", str(self.target)] if fmt == "markdown" else [])
+        return run("export_tasks.py", *args, *extra, isolated=True)
+
+    def exported(self):
+        result = self.export()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return self.target.read_text()
+
+    def test_second_run_leaves_the_target_unchanged(self):
+        self.target.write_text("# Pending\n\n- my own task\n\n## Later\n\nnotes\n")
+        first = self.exported()
+        before = (self.target.stat().st_mtime_ns, self.target.read_bytes())
+        again = self.export()
+        self.assertEqual(again.returncode, 0)
+        self.assertIn("unchanged", again.stderr)
+        self.assertEqual((self.target.stat().st_mtime_ns, self.target.read_bytes()), before)
+        self.assertEqual(first.count("<!-- hindsight:begin "), 3)
+        self.assertTrue(first.startswith("# Pending\n\n- my own task\n\n## Later\n\nnotes\n\n## Hindsight\n"))
+
+    def test_creates_the_file_with_one_task_per_open_finding(self):
+        md = self.exported()
+        self.assertTrue(md.startswith("## Hindsight\n\n<!-- Managed by Hindsight's export_tasks.py"))
+        self.assertIn("<!-- hindsight:begin H-002 -->\n- [ ] **H-002** second _(Low Impact / Low Effort · "
+                      "Code Quality)_\n\n  ```text\n  do two\n\n  Done when:\n  d\n  ```\n"
+                      "<!-- hindsight:end H-002 -->\n", md)
+        self.assertEqual([l for l in md.splitlines() if l.startswith("- [")],
+                         ["- [ ] **H-001** first _(High Impact / Low Effort · Code Quality)_",
+                          "- [ ] **H-002** second _(Low Impact / Low Effort · Code Quality)_",
+                          "- [ ] **H-003** third _(High Impact / High Effort · Code Quality)_"])
+
+    def test_updates_in_place_keeps_ticks_and_user_notes_and_never_duplicates(self):
+        self.target.write_text("intro\n\n## Hindsight\n\nmy note about these\n\n## After\n\nkeep me\n")
+        md = self.exported()
+        md = md.replace("- [ ] **H-002**", "- [x] **H-002**")  # the user ticks one off
+        self.target.write_text(md)
+        self.review([json_finding(id="H-001", title="first, reworded", prompt="do one better"),
+                     json_finding(id="H-002", title="second", prompt="do two", impact="Low"),
+                     json_finding(id="H-003", title="third", prompt="do three", effort="High"),
+                     json_finding(id="H-004", title="fourth", prompt="do four")])
+        md = self.exported()
+        self.assertEqual(md.count("<!-- hindsight:begin H-001 -->"), 1)
+        self.assertIn("- [ ] **H-001** first, reworded", md)
+        self.assertIn("  do one better\n", md)
+        self.assertNotIn("  do one\n", md)
+        self.assertIn("- [x] **H-002** second", md)
+        self.assertIn("my note about these", md)
+        self.assertTrue(md.endswith("<!-- hindsight:end H-004 -->\n\n## After\n\nkeep me\n"))
+        order = [l.split("**")[1] for l in md.splitlines() if l.startswith("- [")]
+        self.assertEqual(order, ["H-001", "H-002", "H-003", "H-004"])
+        self.assertEqual(self.export().returncode, 0)
+        self.assertEqual(self.target.read_text(), md)
+
+    def test_findings_no_longer_open_are_ticked_not_deleted(self):
+        self.exported()
+        self.review([json_finding(id="H-001", title="first", prompt="do one",
+                                  status="wontfix", status_note="accepted"),
+                     json_finding(id="H-003", title="third", prompt="do three", effort="High")])
+        md = self.exported()
+        self.assertIn("- [x] **H-001** first _(High Impact / Low Effort · Code Quality)_ — closed: marked wontfix\n", md)
+        self.assertIn("- [x] **H-002** second _(Low Impact / Low Effort · Code Quality)_ — closed: not in the "
+                      "latest review\n", md)
+        self.assertIn("- [ ] **H-003** third", md)
+        self.assertEqual(self.export().returncode, 0)
+        self.assertEqual(self.target.read_text(), md)
+
+    def test_hostile_markdown_content_cannot_break_the_section(self):
+        self.review([json_finding(title=self.HOSTILE_TITLE, prompt=self.HOSTILE_PROMPT),
+                     json_finding(title="plain", prompt="ok")])
+        md = self.exported()
+        self.assertEqual(md.count("<!-- hindsight:begin "), 2)
+        self.assertIn("- [ ] **H-001** Fix `rm -rf` $(touch pwned) and $HOME's \"quotes\" second line _(", md)
+        self.assertIn("  ````text\n", md)  # fence longer than the prompt's own ``` block
+        self.assertIn("  <!-- hindsight:end H-001 -->\n", md)  # indented: data, not a marker
+        self.assertEqual(self.export().returncode, 0)
+        self.assertEqual(self.target.read_text(), md)
+
+    def test_gh_commands_pass_finding_text_through_the_shell_unchanged(self):
+        self.review([json_finding(title=self.HOSTILE_TITLE, prompt=self.HOSTILE_PROMPT),
+                     json_finding(title="done already", prompt="p", status="resolved", status_note="n")])
+        result = self.export(fmt="gh")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("Printed 1 gh issue create command(s); none were run.", result.stderr)
+        self.assertFalse(self.target.exists())
+        script = result.stdout
+        self.assertEqual(script.count("gh issue create"), 1)
+        self.assertIn("<<'HINDSIGHT_H_001_BODY_1'", script)  # the body contains the plain delimiter
+        bindir = self.root / "bin"
+        bindir.mkdir()
+        stub = bindir / "gh"
+        stub.write_text('#!/usr/bin/env bash\nprintf "%s\\0" "$@" > "$GH_ARGS"\ncat > "$GH_BODY"\n')
+        stub.chmod(0o755)
+        work = self.root / "work"
+        work.mkdir()
+        env = {"PATH": f"{bindir}{os.pathsep}{os.environ['PATH']}",
+               "GH_ARGS": str(self.root / "args"), "GH_BODY": str(self.root / "body")}
+        ran = subprocess.run(["bash", "-c", script], cwd=work, env={**os.environ, **env},
+                             capture_output=True, text=True)
+        self.assertEqual(ran.returncode, 0, ran.stderr)
+        args = (self.root / "args").read_text().split("\0")[:-1]
+        self.assertEqual(args, ["issue", "create", "--title",
+                                "[H-001] Fix `rm -rf` $(touch pwned) and $HOME's \"quotes\" second line",
+                                "--body-file", "-"])
+        body = (self.root / "body").read_text()
+        self.assertIn(self.HOSTILE_PROMPT + "\n\nDone when:\nd\n", body)
+        self.assertEqual(sorted(p.name for p in work.iterdir()), [])  # nothing was executed
+
+    def test_errors(self):
+        self.assertEqual(run("export_tasks.py", "--root", str(self.root), "--format", "markdown").returncode, 2)
+        self.assertEqual(run("export_tasks.py", "--root", str(self.root), "--format", "csv").returncode, 2)
+        with tempfile.TemporaryDirectory() as empty:
+            result = run("export_tasks.py", "--root", empty, "--format", "gh")
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("no review found", result.stderr)
+        run("render_output.py", "--root", str(self.root), stdin=json.dumps({"status": "needs_input", "missing": ["goal"]}))
+        result = self.export()
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("not a completed review", result.stderr)
+        self.assertFalse(self.target.exists())
+
+
 class RubricTest(unittest.TestCase):
     """The Impact/Effort rubric is worded identically in the P-Prompt and
     SKILL.md, so both review paths rank findings the same way."""
